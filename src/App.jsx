@@ -494,6 +494,7 @@ function useExcelData() {
             checkIn: String(row["תאריך צ׳ק-אין (YYYY-MM-DD)"] || row["תאריך צ׳ק-אין"] || "").trim(),
             nights: String(row["מספר לילות"] || "").trim(),
             mapsLink: String(row["קישור Google Maps"] || "").trim(),
+            docLink: String(row["קישור לאישור הזמנה / מסמך"] || row["קישור לאישור הזמנה"] || "").trim(),
             price: String(row["מחיר"] || "").trim(),
             currency: normalizeCurrency(row["מטבע"]),
             paid: /^(כן|yes|true|✓|v)$/i.test(String(row["שולם? (כן/לא)"] || row["שולם?"] || row["שולם"] || "").trim()),
@@ -516,6 +517,54 @@ function useExcelData() {
 /* Weather hook (cached for offline)                                    */
 /* ------------------------------------------------------------------ */
 
+/* Parse one open-meteo "daily" block into { date: {code,max,min} } */
+function parseDaily(daily) {
+  const byDate = {};
+  const codes = daily.weather_code || daily.weathercode || [];
+  (daily.time || []).forEach((t, i) => {
+    byDate[t] = { code: codes[i], max: Math.round(daily.temperature_2m_max[i]), min: Math.round(daily.temperature_2m_min[i]) };
+  });
+  return byDate;
+}
+
+async function fetchWeatherBatched() {
+  // ONE request for all cities (comma-separated coords) — same network profile as the FX call,
+  // avoids the rate-limiting that killed 10 parallel requests.
+  const lats = WEATHER_CITIES.map((c) => c.lat).join(",");
+  const lons = WEATHER_CITIES.map((c) => c.lon).join(",");
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`;
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`status ${r.status}`);
+      const j = await r.json();
+      const arr = Array.isArray(j) ? j : [j]; // single-location responses aren't wrapped in an array
+      const obj = {};
+      arr.forEach((loc, i) => { const c = WEATHER_CITIES[i]; if (c && loc && loc.daily) obj[c.id] = parseDaily(loc.daily); });
+      if (Object.keys(obj).length) return obj;
+      throw new Error("empty batched weather");
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+async function fetchWeatherPerCity() {
+  // fallback: individual requests, tolerating partial failure
+  const one = async (c) => {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    const j = await r.json();
+    return [c.id, parseDaily(j.daily)];
+  };
+  const settled = await Promise.allSettled(WEATHER_CITIES.map(one));
+  const obj = {};
+  settled.forEach((res) => { if (res.status === "fulfilled") { const [id, byDate] = res.value; obj[id] = byDate; } });
+  if (Object.keys(obj).length === 0) throw new Error("all weather requests failed");
+  return obj;
+}
+
 function useWeather() {
   const [weather, setWeather] = useState({});
   const [status, setStatus] = useState("loading");
@@ -524,29 +573,9 @@ function useWeather() {
     let cancelled = false;
     (async () => {
       try {
-        const { data, fromCache } = await fetchWithCache("weather-cache-v1", async () => {
-          const fetchCity = async (c) => {
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`;
-            // one retry — the free endpoint can transiently rate-limit when 10 cities fire at once
-            let lastErr = null;
-            for (let attempt = 0; attempt < 2; attempt++) {
-              try {
-                const r = await fetch(url);
-                if (!r.ok) throw new Error(`status ${r.status}`);
-                const j = await r.json();
-                const byDate = {};
-                j.daily.time.forEach((t, i) => { byDate[t] = { code: j.daily.weathercode[i], max: Math.round(j.daily.temperature_2m_max[i]), min: Math.round(j.daily.temperature_2m_min[i]) }; });
-                return [c.id, byDate];
-              } catch (e) { lastErr = e; }
-            }
-            throw lastErr;
-          };
-          // allSettled: a single city failing must NOT wipe out the whole forecast
-          const settled = await Promise.allSettled(WEATHER_CITIES.map(fetchCity));
-          const obj = {};
-          settled.forEach((res) => { if (res.status === "fulfilled") { const [id, byDate] = res.value; obj[id] = byDate; } });
-          if (Object.keys(obj).length === 0) throw new Error("all weather requests failed");
-          return obj;
+        const { data, fromCache } = await fetchWithCache("weather-cache-v2", async () => {
+          try { return await fetchWeatherBatched(); }
+          catch (e) { return await fetchWeatherPerCity(); }
         });
         if (!cancelled) { setWeather(data); setStatus(fromCache ? "cached" : "ready"); }
       } catch (e) { if (!cancelled) setStatus("error"); }
@@ -1027,6 +1056,8 @@ function DaySheet({ dateKey, data, setData, merged, weather, weatherStatus, onCl
   const placeId = merged.cityForDate(dateKey);
   const note = data.dayNotes[dateKey] || "";
   const [noteOpen, setNoteOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(note);
+  const [noteSaved, setNoteSaved] = useState(false);
 
   const setPlaceForDay = (p) => setData((d) => ({ ...d, dayCities: { ...d.dayCities, [dateKey]: p } }));
   const setNoteForDay = (v) => setData((d) => ({ ...d, dayNotes: { ...d.dayNotes, [dateKey]: v } }));
@@ -1111,7 +1142,19 @@ function DaySheet({ dateKey, data, setData, merged, weather, weatherStatus, onCl
               <ChevronDown size={15} style={{ transform: noteOpen ? "rotate(180deg)" : "none", transition: "0.2s" }} />
             </button>
             {noteOpen && (
-              <textarea value={note} onChange={(e) => setNoteForDay(e.target.value)} rows={2} placeholder="לדוגמה: צ'ק-אאוט מהמלון ב-10:00" className="w-full rounded-lg px-3 py-2 text-sm border outline-none resize-none mt-2" style={{ borderColor: "#E5DAC0", backgroundColor: "#fff" }} />
+              <div className="mt-2">
+                <textarea value={noteDraft} onChange={(e) => { setNoteDraft(e.target.value); setNoteSaved(false); }} rows={2} placeholder="לדוגמה: צ'ק-אאוט מהמלון ב-10:00" className="w-full rounded-lg px-3 py-2 text-sm border outline-none resize-none" style={{ borderColor: "#E5DAC0", backgroundColor: "#fff" }} />
+                <div className="flex items-center gap-2 mt-2">
+                  <button onClick={() => { setNoteForDay(noteDraft.trim()); setNoteSaved(true); setTimeout(() => setNoteSaved(false), 2500); }}
+                    disabled={noteDraft === note}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold rounded-xl px-4 py-2 text-white disabled:opacity-40"
+                    style={{ backgroundColor: INDIGO }}>
+                    <Check size={15} /> שמירת ההערה
+                  </button>
+                  {noteSaved && <span className="inline-flex items-center gap-1 text-sm font-semibold" style={{ color: "#5B8266" }}><CircleCheck size={15} /> נשמר ✓</span>}
+                  {!noteSaved && noteDraft !== note && <span className="text-xs" style={{ color: VERMILLION }}>יש שינוי שלא נשמר</span>}
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -1369,7 +1412,7 @@ function FlightForm({ initial, onSave, onCancel }) {
   );
 }
 
-const EMPTY_HOTEL = { name: "", location: "", mapsLink: "", checkIn: "", nights: "", paid: false, price: "", currency: "JPY", notes: "" };
+const EMPTY_HOTEL = { name: "", location: "", mapsLink: "", docLink: "", checkIn: "", nights: "", paid: false, price: "", currency: "JPY", notes: "" };
 
 function HotelForm({ initial, onSave, onCancel }) {
   const [h, setH] = useState(initial || EMPTY_HOTEL);
@@ -1391,6 +1434,7 @@ function HotelForm({ initial, onSave, onCancel }) {
           </div>
         </Field>
         <Field label="קישור Google Maps לאישור מיקום ההזמנה (או שם המקום)"><input value={h.mapsLink} onChange={(e) => set("mapsLink", e.target.value)} placeholder="https://maps.app.goo.gl/… או שם המלון" className={inputCls} style={inputStyle} /></Field>
+        <Field label="קישור לאישור הזמנה / מסמך (Google Drive)"><input value={h.docLink} onChange={(e) => set("docLink", e.target.value)} placeholder="https://drive.google.com/…" className={inputCls} style={inputStyle} /></Field>
         <Field label="סטטוס תשלום"><PaidToggle paid={h.paid} onChange={(v) => set("paid", v)} /></Field>
         <Field label="הערות (מס׳ הזמנה, צ׳ק-אאוט, ארוחת בוקר וכו׳)"><textarea value={h.notes} onChange={(e) => set("notes", e.target.value)} rows={2} className={inputCls + " resize-none"} style={inputStyle} /></Field>
       </div>
@@ -1450,6 +1494,7 @@ function LogiCard({ item, kind, onEdit, onRemove }) {
           : (
             <>
               {(item.mapsLink || item.location) && <LinkButton url={item.mapsLink || item.location} icon={MapPin} label="מיקום במפות" color="#6B4F8A" />}
+              {item.docLink && <LinkButton url={item.docLink} icon={FileText} label="אישור הזמנה" color="#3E8E7E" />}
               {Number(item.price) > 0 && <span className="text-xs font-semibold" style={{ color: GOLD }}>{CURRENCY_META[item.currency]?.symbol}{Number(item.price).toLocaleString()}</span>}
             </>
           )}
