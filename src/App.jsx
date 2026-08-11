@@ -76,7 +76,10 @@ const CATEGORIES = [
   { id: "transport", label: "תחבורה", color: "#6B7280", Icon: Bus },
   { id: "flight", label: "טיסה", color: "#2E86AB", Icon: Plane },
   { id: "car", label: "רכב שכור", color: "#3E8E7E", Icon: Car },
+<<<<<<< HEAD
   { id: "hotel", label: "מלון", color: "#6B4F8A", Icon: Landmark },
+=======
+>>>>>>> abdd0c0b20ea155146cddd5483a28f1faab4208f
   { id: "shopping", label: "קניות", color: "#C9678A", Icon: ShoppingBag },
   { id: "other", label: "אחר", color: "#8A8578", Icon: Star },
 ];
@@ -813,7 +816,11 @@ function ItemForm({ initial, onSave, onCancel }) {
 
 function TimelineItem({ item, isFirst, isLast, isKorea, docLink, onSaveDocLink, onToggleVisited, onEdit, onDelete }) {
   const [expanded, setExpanded] = useState(false);
+<<<<<<< HEAD
   const [addingDoc, setAddingDoc] = useState(false);
+=======
+  const [editingDoc, setEditingDoc] = useState(false);
+>>>>>>> abdd0c0b20ea155146cddd5483a28f1faab4208f
   const [docDraft, setDocDraft] = useState(docLink || "");
   const cat = catById(item.category);
   const { Icon } = cat;
@@ -821,7 +828,11 @@ function TimelineItem({ item, isFirst, isLast, isKorea, docLink, onSaveDocLink, 
   const isCar = item.category === "car";
   const maps = buildMapsLink(item.place || item.name, isKorea);
   const isLocal = item.source !== "excel";
+<<<<<<< HEAD
   const hasExtra = item.notes || item.openTime || item.closeTime || item.price || isLocal;
+=======
+  const hasExtra = item.notes || item.openTime || item.closeTime || item.price || docLink || isLocal;
+>>>>>>> abdd0c0b20ea155146cddd5483a28f1faab4208f
 
   return (
     <div className="flex gap-3">
@@ -838,12 +849,16 @@ function TimelineItem({ item, isFirst, isLast, isKorea, docLink, onSaveDocLink, 
       <div className="flex-1 pb-3 pt-0.5">
         <div className="relative overflow-hidden rounded-2xl border" style={{ borderColor: "#E5DAC0", backgroundColor: "#fff" }}>
           <HankoStamp show={item.visited} />
-          <div className="p-3">
+          <button onClick={() => hasExtra && setExpanded((e) => !e)} className="w-full text-right p-3">
             <div className="flex items-start justify-between gap-2">
               <button onClick={() => hasExtra && setExpanded((e) => !e)} className="flex-1 min-w-0 text-right">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   {item.time && <span className="inline-flex items-center gap-1 text-xs font-bold" style={{ color: INDIGO }}><Clock size={12} />{item.time}</span>}
                   <CategoryChip cat={cat} small />
+<<<<<<< HEAD
+=======
+                  {docLink && <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#E8F0EC", color: "#3E8E7E" }}><FileText size={9} /> מסמך מצורף</span>}
+>>>>>>> abdd0c0b20ea155146cddd5483a28f1faab4208f
                   {isLocal && <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#FDEDE9", color: VERMILLION }}><Lock size={9} /> מקומי אצלי בלבד</span>}
                 </div>
                 <div className="font-bold text-[15px] flex items-center gap-1.5" style={{ color: INK, fontFamily: "'Heebo', sans-serif" }}>
@@ -853,6 +868,7 @@ function TimelineItem({ item, isFirst, isLast, isKorea, docLink, onSaveDocLink, 
                     </a>
                   ) : item.name}
                 </div>
+<<<<<<< HEAD
               </button>
               <div className="flex items-center gap-1.5 shrink-0">
                 {docLink ? (
@@ -900,10 +916,50 @@ function TimelineItem({ item, isFirst, isLast, isKorea, docLink, onSaveDocLink, 
                     <button onClick={() => onEdit(item)} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: "#8A7F63" }}><Pencil size={12} /> עריכה</button>
                     <button onClick={() => onDelete(item.id)} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: VERMILLION }}><Trash2 size={12} /> מחיקה</button>
                   </div>
+=======
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span onClick={(e) => { e.stopPropagation(); onToggleVisited(item); }} className="w-8 h-8 rounded-full flex items-center justify-center border-2 transition cursor-pointer"
+                  style={{ borderColor: item.visited ? VERMILLION : "#D9CBA5", backgroundColor: item.visited ? VERMILLION : "transparent" }}>
+                  <Check size={16} color={item.visited ? "#fff" : "#D9CBA5"} />
+                </span>
+                {hasExtra && <ChevronDown size={16} color="#B0A483" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "0.2s" }} />}
+              </div>
+            </div>
+          </button>
+
+          {expanded && (
+            <div className="px-3 pb-3 -mt-1">
+              {(item.openTime || item.closeTime) && <div className="text-xs mt-1" style={{ color: "#8A7F63" }}>שעות פתיחה: {item.openTime || "?"} – {item.closeTime || "?"}</div>}
+              {item.price && <div className="text-xs mt-1 font-medium" style={{ color: GOLD }}>~¥{item.price}</div>}
+              {item.notes && <div className="text-xs mt-1.5 leading-relaxed" style={{ color: "#6B6355" }}>{item.notes}</div>}
+
+              <div className="mt-2.5 pt-2.5 border-t" style={{ borderColor: "#F0E9D6" }}>
+                {docLink && !editingDoc ? (
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <a href={docLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: "#3E8E7E" }}><FileText size={13} /> פתיחת המסמך <ExternalLink size={11} /></a>
+                    <button onClick={() => { setDocDraft(docLink); setEditingDoc(true); }} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: "#8A7F63" }}><Pencil size={12} /> החלפת קישור</button>
+                    <button onClick={() => onSaveDocLink(item.id, "")} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: VERMILLION }}><Trash2 size={12} /> הסרה</button>
+                  </div>
+                ) : editingDoc ? (
+                  <div className="flex gap-2">
+                    <input value={docDraft} onChange={(e) => setDocDraft(e.target.value)} placeholder="קישור לגוגל דרייב / כרטיס / הזמנה" className="flex-1 rounded-lg px-2.5 py-1.5 text-xs border outline-none" style={{ borderColor: "#E5DAC0" }} />
+                    <button onClick={() => { onSaveDocLink(item.id, docDraft.trim()); setEditingDoc(false); }} className="rounded-lg px-3 text-xs font-semibold text-white" style={{ backgroundColor: "#3E8E7E" }}>שמירה</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setEditingDoc(true)} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: "#3E8E7E" }}><Link2 size={12} /> צירוף קישור למסמך (כרטיס / הזמנה) — נשמר רק אצלך, לא עולה לגיט</button>
+>>>>>>> abdd0c0b20ea155146cddd5483a28f1faab4208f
                 )}
               </div>
-            )}
-          </div>
+
+              {isLocal && (
+                <div className="flex items-center gap-3 mt-2.5 pt-2.5 border-t" style={{ borderColor: "#F0E9D6" }}>
+                  <button onClick={() => onEdit(item)} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: "#8A7F63" }}><Pencil size={12} /> עריכה</button>
+                  <button onClick={() => onDelete(item.id)} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: VERMILLION }}><Trash2 size={12} /> מחיקה</button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1416,10 +1472,17 @@ function InfoTab({ data, setData, merged, excelStatus, onRefreshExcel }) {
 
       <Collapsible id="docs" title={`המסמכים שלי (${myDocs.length})`} Icon={FileText}>
         <div className="text-xs leading-relaxed mb-2" style={{ color: "#8A7F63" }}>
+<<<<<<< HEAD
           קישורים למסמכים (כרטיסים, אישורי הזמנה) שצירפתם לפריטים בלוז. הדרך הכי נוחה: שתפו את הקובץ מה-Google Drive האישי שלכם עם "כל מי שיש לו קישור יכול לצפות", והדביקו כאן את קישור השיתוף. הרשימה הזו מרכזת את כל המסמכים במקום אחד — לא צריך לחפש יום-יום בלוז.
         </div>
         {myDocs.length === 0 ? (
           <div className="text-sm text-center py-4 rounded-xl" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>עדיין לא צירפתם מסמכים. בכל פריט בלוז יש כפתור 📎 קטן לצירוף קישור.</div>
+=======
+          קישורים למסמכים (כרטיסים, אישורי הזמנה) שצירפת לפריטים בלוז — נשמרים רק על המכשיר הזה, לא עולים לגיט. הדרך הכי נוחה: שתפו את הקובץ מה-Google Drive האישי שלכם עם "כל מי שיש לו קישור יכול לצפות", והדביקו את קישור השיתוף כאן.
+        </div>
+        {myDocs.length === 0 ? (
+          <div className="text-sm text-center py-4 rounded-xl" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>עדיין לא צירפתם מסמכים. פתחו כל פריט בלוז ולחצו "צירוף קישור למסמך".</div>
+>>>>>>> abdd0c0b20ea155146cddd5483a28f1faab4208f
         ) : (
           <div className="space-y-1.5">
             {myDocs.map(({ date, item, url }) => (
