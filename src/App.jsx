@@ -1405,51 +1405,51 @@ function HotelForm({ initial, onSave, onCancel }) {
 function LogiCard({ item, kind, onEdit, onRemove }) {
   const isLocal = item.source === "local";
   const isFlight = kind === "flight";
-  const route = isFlight ? [item.fromAirport, item.toAirport].filter(Boolean).join(" \u2190 ") : null;
+  const route = isFlight ? [item.fromAirport, item.toAirport].filter(Boolean).join(" ← ") : null;
   return (
     <div className="rounded-2xl p-3.5" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0" }}>
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             {isFlight
-              ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: "#EAF2F6", color: "#2E86AB" }}><PlaneTakeoff size={12} /> \u05d8\u05d9\u05e1\u05d4</span>
-              : <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: "#F0EAF6", color: "#6B4F8A" }}><BedDouble size={12} /> \u05de\u05dc\u05d5\u05df</span>}
+              ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: "#EAF2F6", color: "#2E86AB" }}><PlaneTakeoff size={12} /> טיסה</span>
+              : <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: "#F0EAF6", color: "#6B4F8A" }}><BedDouble size={12} /> מלון</span>}
             <PaidBadge paid={item.paid} />
             {isLocal
-              ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#FDEDE9", color: VERMILLION }}><Lock size={9} /> \u05de\u05e7\u05d5\u05de\u05d9 \u05d0\u05e6\u05dc\u05d9 \u05d1\u05dc\u05d1\u05d3</span>
-              : <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#E7F0E9", color: "#5B8266" }}><RefreshCw size={9} /> \u05de\u05e1\u05d5\u05e0\u05db\u05e8\u05df \u05de\u05d4\u05d0\u05e7\u05e1\u05dc</span>}
+              ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#FDEDE9", color: VERMILLION }}><Lock size={9} /> מקומי אצלי בלבד</span>
+              : <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#E7F0E9", color: "#5B8266" }}><RefreshCw size={9} /> מסונכרן מהאקסל</span>}
           </div>
-          <div className="font-bold text-[15px]" style={{ color: INK, fontFamily: "'Heebo', sans-serif" }}>{isFlight ? (route || item.airline || "\u05d8\u05d9\u05e1\u05d4") : item.name}</div>
+          <div className="font-bold text-[15px]" style={{ color: INK, fontFamily: "'Heebo', sans-serif" }}>{isFlight ? (route || item.airline || "טיסה") : item.name}</div>
           <div className="text-xs mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: "#8A7F63" }}>
             {isFlight ? (
               <>
                 {item.date && <span>{formatHeShort(item.date)}</span>}
-                {item.time && <span>\u00b7 {item.time}</span>}
-                {(item.airline || item.flightNo) && <span>\u00b7 {[item.airline, item.flightNo].filter(Boolean).join(" ")}</span>}
+                {item.time && <span>· {item.time}</span>}
+                {(item.airline || item.flightNo) && <span>· {[item.airline, item.flightNo].filter(Boolean).join(" ")}</span>}
               </>
             ) : (
               <>
                 {item.location && <span className="inline-flex items-center gap-1"><MapPin size={11} />{item.location}</span>}
-                {Number(item.nights) > 0 && <span className="inline-flex items-center gap-1"><Moon size={11} />{item.nights} \u05dc\u05d9\u05dc\u05d5\u05ea</span>}
-                {item.checkIn && <span>\u00b7 \u05e6\u05f3\u05e7-\u05d0\u05d9\u05df {formatHeShort(item.checkIn)}</span>}
+                {Number(item.nights) > 0 && <span className="inline-flex items-center gap-1"><Moon size={11} />{item.nights} לילות</span>}
+                {item.checkIn && <span>· צ׳ק-אין {formatHeShort(item.checkIn)}</span>}
               </>
             )}
           </div>
         </div>
         {isLocal && (
           <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={onEdit} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "#F0E9D6" }} title="\u05e2\u05e8\u05d9\u05db\u05d4"><Pencil size={13} color="#8A7F63" /></button>
-            <button onClick={onRemove} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "#FDEDE9" }} title="\u05de\u05d7\u05d9\u05e7\u05d4"><Trash2 size={13} color={VERMILLION} /></button>
+            <button onClick={onEdit} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "#F0E9D6" }} title="עריכה"><Pencil size={13} color="#8A7F63" /></button>
+            <button onClick={onRemove} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "#FDEDE9" }} title="מחיקה"><Trash2 size={13} color={VERMILLION} /></button>
           </div>
         )}
       </div>
       {item.notes && <div className="text-xs leading-relaxed mb-1.5" style={{ color: "#6B6355" }}>{item.notes}</div>}
       <div className="flex items-center gap-2 flex-wrap">
         {isFlight
-          ? (item.ticketLink && <LinkButton url={item.ticketLink} icon={Ticket} label="\u05d4\u05db\u05e8\u05d8\u05d9\u05e1\u05d9\u05dd" color="#2E86AB" />)
+          ? (item.ticketLink && <LinkButton url={item.ticketLink} icon={Ticket} label="הכרטיסים" color="#2E86AB" />)
           : (
             <>
-              {(item.mapsLink || item.location) && <LinkButton url={item.mapsLink || item.location} icon={MapPin} label="\u05de\u05d9\u05e7\u05d5\u05dd \u05d1\u05de\u05e4\u05d5\u05ea" color="#6B4F8A" />}
+              {(item.mapsLink || item.location) && <LinkButton url={item.mapsLink || item.location} icon={MapPin} label="מיקום במפות" color="#6B4F8A" />}
               {Number(item.price) > 0 && <span className="text-xs font-semibold" style={{ color: GOLD }}>{CURRENCY_META[item.currency]?.symbol}{Number(item.price).toLocaleString()}</span>}
             </>
           )}
@@ -1465,8 +1465,6 @@ function LogisticsTab({ data, setData, merged, excelStatus }) {
   const isFlights = view === "flights";
 
   const list = isFlights ? merged.flights : merged.hotels;
-  const localCount = list.filter((x) => x.source === "local").length;
-  const syncedCount = list.length - localCount;
 
   const saveFlight = (fl) => {
     setData((d) => { const l = [...(d.flights || [])]; const i = l.findIndex((x) => x.id === fl.id); if (i >= 0) l[i] = fl; else l.push(fl); return { ...d, flights: l }; });
@@ -1478,7 +1476,6 @@ function LogisticsTab({ data, setData, merged, excelStatus }) {
   };
   const removeFlight = (id) => setData((d) => ({ ...d, flights: (d.flights || []).filter((x) => x.id !== id) }));
   const removeHotel = (id) => setData((d) => ({ ...d, hotels: (d.hotels || []).filter((x) => x.id !== id) }));
-
   const switchView = (v) => { setView(v); setAdding(false); setEditing(null); };
 
   const totalNights = merged.hotels.reduce((s, h) => s + (Number(h.nights) || 0), 0);
@@ -1486,31 +1483,30 @@ function LogisticsTab({ data, setData, merged, excelStatus }) {
 
   return (
     <div className="px-4 pb-6">
-      <SectionTitle eyebrow="\u05dc\u05d5\u05d2\u05d9\u05e1\u05d8\u05d9\u05e7\u05d4" title="\u05d8\u05d9\u05e1\u05d5\u05ea \u05d5\u05de\u05dc\u05d5\u05e0\u05d5\u05ea" Icon={Plane} />
+      <SectionTitle eyebrow="לוגיסטיקה" title="טיסה ומלון" Icon={Plane} />
 
-      {/* segmented toggle */}
       <div className="flex gap-1 p-1 rounded-2xl mb-4" style={{ backgroundColor: "#EFE7D4" }}>
         <button onClick={() => switchView("flights")} className="flex-1 rounded-xl py-2 text-sm font-bold flex items-center justify-center gap-1.5 transition" style={{ backgroundColor: isFlights ? "#fff" : "transparent", color: isFlights ? "#2E86AB" : "#8A7F63", boxShadow: isFlights ? "0 1px 4px rgba(0,0,0,0.08)" : "none" }}>
-          <Plane size={15} /> \u05d8\u05d9\u05e1\u05d5\u05ea ({merged.flights.length})
+          <Plane size={15} /> טיסות ({merged.flights.length})
         </button>
         <button onClick={() => switchView("hotels")} className="flex-1 rounded-xl py-2 text-sm font-bold flex items-center justify-center gap-1.5 transition" style={{ backgroundColor: !isFlights ? "#fff" : "transparent", color: !isFlights ? "#6B4F8A" : "#8A7F63", boxShadow: !isFlights ? "0 1px 4px rgba(0,0,0,0.08)" : "none" }}>
-          <Hotel size={15} /> \u05de\u05dc\u05d5\u05e0\u05d5\u05ea ({merged.hotels.length})
+          <Hotel size={15} /> מלונות ({merged.hotels.length})
         </button>
       </div>
 
       {!isFlights && merged.hotels.length > 0 && (
         <div className="rounded-2xl p-3 mb-4 grid grid-cols-3 gap-2 text-center" style={{ backgroundColor: INDIGO }}>
-          <div><div className="text-lg font-extrabold text-white">{merged.hotels.length}</div><div className="text-[10px] text-white/60">\u05de\u05dc\u05d5\u05e0\u05d5\u05ea</div></div>
-          <div><div className="text-lg font-extrabold text-white">{totalNights}</div><div className="text-[10px] text-white/60">\u05e1\u05d4\u05f4\u05db \u05dc\u05d9\u05dc\u05d5\u05ea</div></div>
-          <div><div className="text-lg font-extrabold text-white">{unpaidH === 0 ? "\u2713" : unpaidH}</div><div className="text-[10px] text-white/60">{unpaidH === 0 ? "\u05d4\u05db\u05d5\u05dc \u05e9\u05d5\u05dc\u05dd" : "\u05d8\u05e8\u05dd \u05e9\u05d5\u05dc\u05de\u05d5"}</div></div>
+          <div><div className="text-lg font-extrabold text-white">{merged.hotels.length}</div><div className="text-[10px] text-white/60">מלונות</div></div>
+          <div><div className="text-lg font-extrabold text-white">{totalNights}</div><div className="text-[10px] text-white/60">סה״כ לילות</div></div>
+          <div><div className="text-lg font-extrabold text-white">{unpaidH === 0 ? "✓" : unpaidH}</div><div className="text-[10px] text-white/60">{unpaidH === 0 ? "הכול שולם" : "טרם שולמו"}</div></div>
         </div>
       )}
 
       {list.length === 0 && !adding && (
         <div className="text-sm text-center py-6 rounded-2xl mb-3" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>
           {isFlights
-            ? "\u05e2\u05d3\u05d9\u05d9\u05df \u05dc\u05d0 \u05e0\u05d5\u05e1\u05e4\u05d5 \u05d8\u05d9\u05e1\u05d5\u05ea. \u05de\u05dc\u05d0\u05d5 \u05d0\u05d5\u05ea\u05df \u05d1\u05d2\u05d9\u05dc\u05d9\u05d5\u05df '\u05d8\u05d9\u05e1\u05d5\u05ea' \u05e9\u05d1\u05d0\u05e7\u05e1\u05dc \u2014 \u05d0\u05d5 \u05d4\u05d5\u05e1\u05d9\u05e4\u05d5 \u05db\u05d0\u05df \u05de\u05e7\u05d5\u05de\u05d9\u05ea."
-            : "\u05e2\u05d3\u05d9\u05d9\u05df \u05dc\u05d0 \u05e0\u05d5\u05e1\u05e4\u05d5 \u05de\u05dc\u05d5\u05e0\u05d5\u05ea. \u05de\u05dc\u05d0\u05d5 \u05d0\u05d5\u05ea\u05dd \u05d1\u05d2\u05d9\u05dc\u05d9\u05d5\u05df '\u05de\u05dc\u05d5\u05e0\u05d5\u05ea' \u05e9\u05d1\u05d0\u05e7\u05e1\u05dc \u2014 \u05d0\u05d5 \u05d4\u05d5\u05e1\u05d9\u05e4\u05d5 \u05db\u05d0\u05df \u05de\u05e7\u05d5\u05de\u05d9\u05ea."}
+            ? "עדיין לא נוספו טיסות. מלאו אותן בגיליון 'טיסות' שבאקסל — או הוסיפו כאן מקומית."
+            : "עדיין לא נוספו מלונות. מלאו אותם בגיליון 'מלונות' שבאקסל — או הוסיפו כאן מקומית."}
         </div>
       )}
 
@@ -1530,13 +1526,13 @@ function LogisticsTab({ data, setData, merged, excelStatus }) {
         isFlights ? <FlightForm onSave={saveFlight} onCancel={() => setAdding(false)} /> : <HotelForm onSave={saveHotel} onCancel={() => setAdding(false)} />
       ) : (
         <button onClick={() => { setAdding(true); setEditing(null); }} className="w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold rounded-2xl py-2.5 text-white" style={{ backgroundColor: VERMILLION }}>
-          <Plus size={15} /> {isFlights ? "\u05d4\u05d5\u05e1\u05e4\u05ea \u05d8\u05d9\u05e1\u05d4 (\u05de\u05e7\u05d5\u05de\u05d9\u05ea)" : "\u05d4\u05d5\u05e1\u05e4\u05ea \u05de\u05dc\u05d5\u05df (\u05de\u05e7\u05d5\u05de\u05d9)"}
+          <Plus size={15} /> {isFlights ? "הוספת טיסה (מקומית)" : "הוספת מלון (מקומי)"}
         </button>
       )}
 
       <div className="text-[11px] mt-3 leading-relaxed px-1" style={{ color: "#B0A483" }}>
-        <div className="flex items-center gap-1.5"><RefreshCw size={10} /> \u05e4\u05e8\u05d9\u05d8\u05d9\u05dd \u05de\u05e1\u05d5\u05de\u05e0\u05d9\u05dd \u201c\u05de\u05e1\u05d5\u05e0\u05db\u05e8\u05df\u201d \u05de\u05d2\u05d9\u05e2\u05d9\u05dd \u05de\u05d2\u05d9\u05dc\u05d9\u05d5\u05e0\u05d5\u05ea '\u05d8\u05d9\u05e1\u05d5\u05ea'/'\u05de\u05dc\u05d5\u05e0\u05d5\u05ea' \u05e9\u05d1\u05d0\u05e7\u05e1\u05dc, \u05d5\u05de\u05ea\u05e2\u05d3\u05db\u05e0\u05d9\u05dd \u05d1\u05db\u05dc push.</div>
-        <div className="flex items-center gap-1.5 mt-1"><Lock size={10} /> \u05e4\u05e8\u05d9\u05d8\u05d9\u05dd \u05e9\u05de\u05d5\u05e1\u05d9\u05e4\u05d9\u05dd \u05db\u05d0\u05df \u05e0\u05e9\u05de\u05e8\u05d9\u05dd \u05de\u05e7\u05d5\u05de\u05d9\u05ea \u05d1\u05de\u05db\u05e9\u05d9\u05e8 \u05d1\u05dc\u05d1\u05d3 (\u05dc\u05d2\u05d9\u05d1\u05d5\u05d9 \u2014 \u201c\u05d2\u05d9\u05d1\u05d5\u05d9 \u05d5\u05e1\u05e0\u05db\u05e8\u05d5\u05df\u201d \u05d1\u05dc\u05e9\u05d5\u05e0\u05d9\u05ea \u05de\u05d9\u05d3\u05e2).</div>
+        <div className="flex items-center gap-1.5"><RefreshCw size={10} /> פריטים מסומנים “מסונכרן” מגיעים מגיליונות 'טיסות'/'מלונות' שבאקסל, ומתעדכנים בכל push.</div>
+        <div className="flex items-center gap-1.5 mt-1"><Lock size={10} /> פריטים שמוסיפים כאן נשמרים מקומית במכשיר בלבד (לגיבוי — “גיבוי וסנכרון” בלשונית מידע).</div>
       </div>
     </div>
   );
@@ -2194,7 +2190,7 @@ export default function JapanTripApp() {
   const TABS = [
     { id: "home", label: "בית", Icon: Home },
     { id: "calendar", label: "לו״ז", Icon: CalendarDays },
-    { id: "logistics", label: "טיסות ומלון", Icon: Plane },
+    { id: "logistics", label: "טיסה ומלון", Icon: Plane },
     { id: "weather", label: "מזג", Icon: Cloud },
     { id: "budget", label: "תקציב", Icon: Wallet },
     { id: "recommend", label: "לאן", Icon: Compass },
