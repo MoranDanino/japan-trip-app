@@ -8,6 +8,7 @@ import {
   CalendarDays, Plane, ShieldAlert, Wifi, Landmark, ChevronDown, StickyNote,
   Volume2, Languages, Send, MessageCircle, FileSpreadsheet, RefreshCw, Lock,
   Compass, Navigation, WifiOff, Coins, Car, FileText, Link2,
+  Hotel, ArrowLeftRight, BedDouble, Moon, PlaneTakeoff, PlaneLanding, CircleCheck,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -336,6 +337,8 @@ const DEFAULT_DATA = {
   packingChecked: {},     // { [itemSlug]: boolean }
   packingLocalItems: [],  // [{id,label}] — extra items added only in-app
   budgetEntries: [],      // [{id, category, place, label, amount, currency}]
+  hotels: [],             // [{id, name, location, mapsLink, checkIn, nights, paid, price, currency, notes}]
+  flights: [],            // [{id, airline, flightNo, date, time, fromAirport, toAirport, ticketLink, paid, notes}]
 };
 
 function useTripData() {
@@ -385,7 +388,7 @@ async function fetchWithCache(cacheKey, fetcher) {
 /* ------------------------------------------------------------------ */
 
 function useExcelData() {
-  const [state, setState] = useState({ status: "loading", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [] });
+  const [state, setState] = useState({ status: "loading", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [] });
 
   const load = useCallback(async () => {
     setState((s) => ({ ...s, status: "loading" }));
@@ -452,9 +455,56 @@ function useExcelData() {
         });
       }
 
-      setState({ status: "ready", itinByDate, cityByDate, budgetRows, packingItems });
+      // Sheet: טיסות
+      const flightRows = [];
+      const flightSheet = wb.Sheets["טיסות"];
+      if (flightSheet) {
+        XLSX.utils.sheet_to_json(flightSheet, { defval: "", raw: false }).forEach((row) => {
+          const notes = String(row["הערות"] || "").trim();
+          if (notes.includes("דוגמה בלבד")) return;
+          const fromAirport = String(row["שדה מוצא"] || "").trim();
+          const toAirport = String(row["שדה יעד"] || "").trim();
+          const date = String(row["תאריך (YYYY-MM-DD)"] || row["תאריך"] || "").trim();
+          if (!fromAirport && !toAirport && !date) return;
+          flightRows.push({
+            id: `xlsxf-${slug(date)}-${slug(fromAirport)}-${slug(toAirport)}-${slug(String(row["שעה (HH:MM)"] || ""))}`,
+            date, time: String(row["שעה (HH:MM)"] || row["שעה"] || "").trim(),
+            fromAirport, toAirport,
+            airline: String(row["חברת תעופה"] || "").trim(),
+            flightNo: String(row["מס׳ טיסה"] || row["מס' טיסה"] || "").trim(),
+            ticketLink: String(row["קישור לכרטיסים"] || "").trim(),
+            paid: /^(כן|yes|true|✓|v)$/i.test(String(row["שולם? (כן/לא)"] || row["שולם?"] || row["שולם"] || "").trim()),
+            notes, source: "excel",
+          });
+        });
+      }
+
+      // Sheet: מלונות
+      const hotelRows = [];
+      const hotelSheet = wb.Sheets["מלונות"];
+      if (hotelSheet) {
+        XLSX.utils.sheet_to_json(hotelSheet, { defval: "", raw: false }).forEach((row) => {
+          const name = String(row["שם המלון"] || "").trim();
+          const notes = String(row["הערות"] || "").trim();
+          if (!name || notes.includes("דוגמה בלבד")) return;
+          hotelRows.push({
+            id: `xlsxh-${slug(name)}-${slug(String(row["תאריך צ׳ק-אין (YYYY-MM-DD)"] || ""))}`,
+            name,
+            location: String(row["עיר / אזור"] || row["עיר"] || "").trim(),
+            checkIn: String(row["תאריך צ׳ק-אין (YYYY-MM-DD)"] || row["תאריך צ׳ק-אין"] || "").trim(),
+            nights: String(row["מספר לילות"] || "").trim(),
+            mapsLink: String(row["קישור Google Maps"] || "").trim(),
+            price: String(row["מחיר"] || "").trim(),
+            currency: normalizeCurrency(row["מטבע"]),
+            paid: /^(כן|yes|true|✓|v)$/i.test(String(row["שולם? (כן/לא)"] || row["שולם?"] || row["שולם"] || "").trim()),
+            notes, source: "excel",
+          });
+        });
+      }
+
+      setState({ status: "ready", itinByDate, cityByDate, budgetRows, packingItems, flightRows, hotelRows });
     } catch (e) {
-      setState({ status: "none", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [] });
+      setState({ status: "none", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [] });
     }
   }, []);
 
@@ -475,18 +525,27 @@ function useWeather() {
     (async () => {
       try {
         const { data, fromCache } = await fetchWithCache("weather-cache-v1", async () => {
-          const results = await Promise.all(
-            WEATHER_CITIES.map(async (c) => {
-              const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`;
-              const r = await fetch(url);
-              if (!r.ok) throw new Error("bad response");
-              const j = await r.json();
-              const byDate = {};
-              j.daily.time.forEach((t, i) => { byDate[t] = { code: j.daily.weathercode[i], max: Math.round(j.daily.temperature_2m_max[i]), min: Math.round(j.daily.temperature_2m_min[i]) }; });
-              return [c.id, byDate];
-            })
-          );
-          const obj = {}; results.forEach(([id, byDate]) => (obj[id] = byDate));
+          const fetchCity = async (c) => {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`;
+            // one retry — the free endpoint can transiently rate-limit when 10 cities fire at once
+            let lastErr = null;
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                const r = await fetch(url);
+                if (!r.ok) throw new Error(`status ${r.status}`);
+                const j = await r.json();
+                const byDate = {};
+                j.daily.time.forEach((t, i) => { byDate[t] = { code: j.daily.weathercode[i], max: Math.round(j.daily.temperature_2m_max[i]), min: Math.round(j.daily.temperature_2m_min[i]) }; });
+                return [c.id, byDate];
+              } catch (e) { lastErr = e; }
+            }
+            throw lastErr;
+          };
+          // allSettled: a single city failing must NOT wipe out the whole forecast
+          const settled = await Promise.allSettled(WEATHER_CITIES.map(fetchCity));
+          const obj = {};
+          settled.forEach((res) => { if (res.status === "fulfilled") { const [id, byDate] = res.value; obj[id] = byDate; } });
+          if (Object.keys(obj).length === 0) throw new Error("all weather requests failed");
           return obj;
         });
         if (!cancelled) { setWeather(data); setStatus(fromCache ? "cached" : "ready"); }
@@ -502,6 +561,37 @@ function useWeather() {
 /* Exchange rate hook (cached for offline) — base: JPY                  */
 /* ------------------------------------------------------------------ */
 
+/* Try several endpoints in order; return the first that yields both ILS & USD.
+   base=JPY, so the result is "value of 1 JPY" in each currency.
+   - api.frankfurter.dev is the current canonical host (frozen v1 kept for compat)
+   - api.frankfurter.app is the legacy mirror, kept as a fallback
+   Frozen v1 uses base/symbols; the legacy host uses from/to — we send both forms. */
+const FX_ENDPOINTS = [
+  "https://api.frankfurter.dev/v1/latest?base=JPY&symbols=ILS,USD",
+  "https://api.frankfurter.app/latest?from=JPY&to=ILS,USD",
+];
+
+async function fetchFxRates() {
+  let lastErr = null;
+  for (const url of FX_ENDPOINTS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await fetch(url, { cache: "no-store" });
+        if (!r.ok) throw new Error(`status ${r.status}`);
+        const j = await r.json();
+        const rates = j && j.rates;
+        if (rates && Number.isFinite(rates.ILS) && Number.isFinite(rates.USD)) {
+          return { ILS: rates.ILS, USD: rates.USD };
+        }
+        throw new Error("missing ILS/USD in response");
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+  }
+  throw lastErr || new Error("all fx endpoints failed");
+}
+
 function useExchangeRates() {
   const [rates, setRates] = useState(null); // { ILS: number, USD: number } — value of 1 JPY
   const [status, setStatus] = useState("loading");
@@ -511,12 +601,7 @@ function useExchangeRates() {
     let cancelled = false;
     (async () => {
       try {
-        const { data, fromCache, fetchedAt } = await fetchWithCache("fx-cache-v1", async () => {
-          const r = await fetch("https://api.frankfurter.app/latest?amount=1&from=JPY&to=ILS,USD");
-          if (!r.ok) throw new Error("fx fetch failed");
-          const j = await r.json();
-          return j.rates;
-        });
+        const { data, fromCache, fetchedAt } = await fetchWithCache("fx-cache-v1", fetchFxRates);
         if (!cancelled) { setRates(data); setStatus(fromCache ? "cached" : "ready"); setAsOf(fetchedAt); }
       } catch (e) { if (!cancelled) setStatus("error"); }
     })();
@@ -535,7 +620,22 @@ function useExchangeRates() {
     return { JPY: amountJPY, ILS: amountJPY * rates.ILS, USD: amountJPY * rates.USD };
   }, [rates]);
 
-  return { rates, status, asOf, toJPY, fromJPY };
+  // Convert any supported currency to any other, in both directions.
+  const convert = useCallback((amount, from, to) => {
+    const n = Number(amount);
+    if (!Number.isFinite(n)) return null;
+    if (from === to) return n;
+    if (!rates) return null;
+    // value of 1 unit of `from` expressed in JPY
+    const fromInJpy = from === "JPY" ? 1 : (rates[from] ? 1 / rates[from] : null);
+    if (fromInJpy == null) return null;
+    const jpy = n * fromInJpy;
+    if (to === "JPY") return jpy;
+    const r = rates[to];
+    return r ? jpy * r : null;
+  }, [rates]);
+
+  return { rates, status, asOf, toJPY, fromJPY, convert };
 }
 
 /* ------------------------------------------------------------------ */
@@ -582,7 +682,17 @@ function useMergedTrip(data, excel) {
       ...data.budgetEntries.map((e) => ({ ...e, source: "local" })),
     ];
 
-    return { itemsByDate, cityForDate, packingList, budgetEntries };
+    const flights = [
+      ...excel.flightRows,
+      ...(data.flights || []).map((f) => ({ ...f, source: "local" })),
+    ].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || (a.time || "99").localeCompare(b.time || "99"));
+
+    const hotels = [
+      ...excel.hotelRows,
+      ...(data.hotels || []).map((h) => ({ ...h, source: "local" })),
+    ].sort((a, b) => (a.checkIn || "9999").localeCompare(b.checkIn || "9999"));
+
+    return { itemsByDate, cityForDate, packingList, budgetEntries, flights, hotels };
   }, [data, excel]);
 }
 
@@ -1113,37 +1223,321 @@ function WeatherTab({ weather, status }) {
 /* Currency converter widget                                            */
 /* ------------------------------------------------------------------ */
 
+const CURRENCY_META = {
+  JPY: { symbol: "¥", label: "יין", he: "יינים" },
+  ILS: { symbol: "₪", label: "שקל", he: "שקלים" },
+  USD: { symbol: "$", label: "דולר", he: "דולרים" },
+};
+const fmtMoney = (v) => v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: v >= 100 ? 0 : 2 });
+
 function CurrencyConverter({ fx }) {
+  const [from, setFrom] = useState("JPY");
   const [amount, setAmount] = useState("1000");
   const n = Number(amount) || 0;
-  const converted = fx.rates ? { ils: n * fx.rates.ILS, usd: n * fx.rates.USD } : null;
+  const targets = CURRENCIES.filter((c) => c !== from);
+
+  // one shekel / one yen reference line so the direction is always clear
+  const oneFromInIls = fx.convert(1, from, "ILS");
+  const oneRef = from === "ILS" ? fx.convert(1, "ILS", "JPY") : fx.convert(1, from, "ILS");
 
   return (
     <div className="rounded-2xl p-4 mb-5" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0" }}>
       <div className="flex items-center gap-1.5 mb-2.5">
         <Coins size={15} style={{ color: GOLD }} />
-        <span className="text-sm font-bold" style={{ color: INDIGO }}>ממיר מהיר: יין ↔ שקל ↔ דולר</span>
+        <span className="text-sm font-bold" style={{ color: INDIGO }}>ממיר מטבע דו-כיווני</span>
         {fx.status === "cached" && <span className="text-[10px] mr-auto" style={{ color: "#B0A483" }}>שער שמור</span>}
       </div>
+
+      {/* currency selector — tap to choose what you're converting FROM */}
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-[11px] font-medium shrink-0" style={{ color: "#8A7F63" }}>ממיר מ־</span>
+        <div className="flex gap-1 flex-1">
+          {CURRENCIES.map((c) => (
+            <button key={c} type="button" onClick={() => setFrom(c)}
+              className="flex-1 rounded-lg py-1 text-xs font-bold border transition"
+              style={{ backgroundColor: from === c ? INDIGO : "transparent", color: from === c ? "#fff" : INDIGO, borderColor: INDIGO }}>
+              {CURRENCY_META[c].symbol} {CURRENCY_META[c].label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg font-bold" style={{ color: "#8A7F63" }}>¥</span>
-        <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} type="text" inputMode="numeric"
+        <span className="text-lg font-bold w-5 text-center" style={{ color: "#8A7F63" }}>{CURRENCY_META[from].symbol}</span>
+        <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} type="text" inputMode="decimal"
           className="flex-1 rounded-xl px-3 py-2 text-lg font-bold border outline-none" style={{ borderColor: "#E5DAC0", color: INK }} />
       </div>
+
       {fx.status === "loading" && <div className="text-xs" style={{ color: "#8A7F63" }}>טוען שער חליפין…</div>}
-      {fx.status === "error" && <div className="text-xs" style={{ color: VERMILLION }}>אין שער זמין (לא מקוונים, ואין נתון שמור עדיין)</div>}
-      {converted && (
-        <div className="grid grid-cols-2 gap-2 mt-1">
-          <div className="rounded-xl px-3 py-2 text-center" style={{ backgroundColor: "#EFE7D4" }}>
-            <div className="text-[10px]" style={{ color: "#8A7F63" }}>שקלים</div>
-            <div className="text-base font-extrabold" style={{ color: INK }}>₪{converted.ils.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
+      {fx.status === "error" && <div className="text-xs" style={{ color: VERMILLION }}>אין שער זמין כרגע (לא מקוונים, ואין נתון שמור עדיין)</div>}
+
+      {fx.rates && (
+        <>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            {targets.map((c) => {
+              const val = fx.convert(n, from, c);
+              return (
+                <div key={c} className="rounded-xl px-3 py-2 text-center" style={{ backgroundColor: "#EFE7D4" }}>
+                  <div className="text-[10px]" style={{ color: "#8A7F63" }}>{CURRENCY_META[c].he}</div>
+                  <div className="text-base font-extrabold" style={{ color: INK }}>{CURRENCY_META[c].symbol}{fmtMoney(val)}</div>
+                </div>
+              );
+            })}
           </div>
-          <div className="rounded-xl px-3 py-2 text-center" style={{ backgroundColor: "#EFE7D4" }}>
-            <div className="text-[10px]" style={{ color: "#8A7F63" }}>דולרים</div>
-            <div className="text-base font-extrabold" style={{ color: INK }}>${converted.usd.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
+          {oneRef != null && (
+            <div className="text-[10px] mt-2 text-center" style={{ color: "#B0A483" }}>
+              {from === "ILS"
+                ? `שקל 1 ≈ ¥${fmtMoney(fx.convert(1, "ILS", "JPY"))} · $${fmtMoney(fx.convert(1, "ILS", "USD"))}`
+                : `${CURRENCY_META[from].symbol}1 ≈ ₪${fmtMoney(fx.convert(1, from, "ILS"))}`}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared little form atoms for the Flights & Hotels tabs               */
+/* ------------------------------------------------------------------ */
+
+function Field({ label, children, half }) {
+  return (
+    <div className={half ? "" : "col-span-2"}>
+      <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>{label}</label>
+      {children}
+    </div>
+  );
+}
+const inputCls = "w-full rounded-lg px-3 py-2 text-sm border outline-none";
+const inputStyle = { borderColor: "#E5DAC0", backgroundColor: "#fff" };
+
+function PaidToggle({ paid, onChange }) {
+  return (
+    <div className="flex gap-2">
+      <button type="button" onClick={() => onChange(true)} className="flex-1 rounded-lg py-1.5 text-xs font-semibold border" style={{ backgroundColor: paid ? "#5B8266" : "#fff", color: paid ? "#fff" : "#5B8266", borderColor: "#5B8266" }}>✓ שולם</button>
+      <button type="button" onClick={() => onChange(false)} className="flex-1 rounded-lg py-1.5 text-xs font-semibold border" style={{ backgroundColor: !paid ? "#C8442D" : "#fff", color: !paid ? "#fff" : "#C8442D", borderColor: "#C8442D" }}>טרם שולם</button>
+    </div>
+  );
+}
+function PaidBadge({ paid }) {
+  return paid
+    ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#E7F0E9", color: "#5B8266" }}><CircleCheck size={10} /> שולם</span>
+    : <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#FDEDE9", color: VERMILLION }}>טרם שולם</span>;
+}
+function LinkButton({ url, icon: Icon, label, color }) {
+  if (!url) return null;
+  const href = /^https?:\/\//i.test(url) ? url : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(url)}`;
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold rounded-full px-2.5 py-1" style={{ backgroundColor: "#EFE7D4", color: color || INDIGO }}>
+      <Icon size={12} /> {label}
+    </a>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Flights tab                                                          */
+/* ------------------------------------------------------------------ */
+
+const EMPTY_FLIGHT = { airline: "", flightNo: "", date: "", time: "", fromAirport: "", toAirport: "", ticketLink: "", paid: false, notes: "" };
+
+function FlightForm({ initial, onSave, onCancel }) {
+  const [f, setF] = useState(initial || EMPTY_FLIGHT);
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const save = () => {
+    if (!f.date && !f.fromAirport && !f.toAirport) return; // need at least something meaningful
+    onSave({ ...f, id: f.id || uid(), source: "local" });
+  };
+  return (
+    <div className="rounded-2xl p-4 mb-3" style={{ backgroundColor: PAPER_SOFT, border: "1px solid #E5DAC0" }}>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <Field label="שדה מוצא" half><input value={f.fromAirport} onChange={(e) => set("fromAirport", e.target.value)} placeholder="TLV · נתב״ג" className={inputCls} style={inputStyle} /></Field>
+        <Field label="שדה יעד" half><input value={f.toAirport} onChange={(e) => set("toAirport", e.target.value)} placeholder="HND · הנדה" className={inputCls} style={inputStyle} /></Field>
+        <Field label="תאריך" half><input type="date" value={f.date} onChange={(e) => set("date", e.target.value)} className={inputCls} style={inputStyle} /></Field>
+        <Field label="שעה" half><input type="time" value={f.time} onChange={(e) => set("time", e.target.value)} className={inputCls} style={inputStyle} /></Field>
+        <Field label="חברת תעופה (אופציונלי)" half><input value={f.airline} onChange={(e) => set("airline", e.target.value)} placeholder="JAL / ELAL" className={inputCls} style={inputStyle} /></Field>
+        <Field label="מס׳ טיסה (אופציונלי)" half><input value={f.flightNo} onChange={(e) => set("flightNo", e.target.value)} placeholder="JL 42" className={inputCls} style={inputStyle} /></Field>
+        <Field label="קישור לכרטיסים (Google Drive / חברת התעופה)"><input value={f.ticketLink} onChange={(e) => set("ticketLink", e.target.value)} placeholder="https://…" className={inputCls} style={inputStyle} /></Field>
+        <Field label="סטטוס תשלום"><PaidToggle paid={f.paid} onChange={(v) => set("paid", v)} /></Field>
+        <Field label="הערות (מס׳ הזמנה, טרמינל וכו׳)"><textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} rows={2} className={inputCls + " resize-none"} style={inputStyle} /></Field>
+      </div>
+      <div className="flex gap-2">
+        <button onClick={save} className="flex-1 rounded-xl py-2 text-sm font-semibold text-white flex items-center justify-center gap-1" style={{ backgroundColor: INDIGO }}><Check size={15} /> שמירה</button>
+        <button onClick={onCancel} className="rounded-xl px-4 py-2 text-sm font-medium" style={{ backgroundColor: "#E5DAC0", color: INK }}>ביטול</button>
+      </div>
+    </div>
+  );
+}
+
+const EMPTY_HOTEL = { name: "", location: "", mapsLink: "", checkIn: "", nights: "", paid: false, price: "", currency: "JPY", notes: "" };
+
+function HotelForm({ initial, onSave, onCancel }) {
+  const [h, setH] = useState(initial || EMPTY_HOTEL);
+  const set = (k, v) => setH((s) => ({ ...s, [k]: v }));
+  const save = () => { if (!h.name.trim()) return; onSave({ ...h, id: h.id || uid(), source: "local" }); };
+  return (
+    <div className="rounded-2xl p-4 mb-3" style={{ backgroundColor: PAPER_SOFT, border: "1px solid #E5DAC0" }}>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <Field label="שם המלון"><input value={h.name} onChange={(e) => set("name", e.target.value)} placeholder="לדוגמה: APA Hotel Shinjuku" className={inputCls} style={inputStyle} /></Field>
+        <Field label="עיר / אזור" half><input value={h.location} onChange={(e) => set("location", e.target.value)} placeholder="שינג׳וקו, טוקיו" className={inputCls} style={inputStyle} /></Field>
+        <Field label="מספר לילות" half><input type="number" min="0" value={h.nights} onChange={(e) => set("nights", e.target.value)} placeholder="3" className={inputCls} style={inputStyle} /></Field>
+        <Field label="תאריך צ׳ק-אין" half><input type="date" value={h.checkIn} onChange={(e) => set("checkIn", e.target.value)} className={inputCls} style={inputStyle} /></Field>
+        <Field label="מחיר (אופציונלי)" half>
+          <div className="flex gap-1">
+            <input type="number" value={h.price} onChange={(e) => set("price", e.target.value)} placeholder="0" className={inputCls} style={inputStyle} />
+            <select value={h.currency} onChange={(e) => set("currency", e.target.value)} className="rounded-lg px-1.5 text-sm border outline-none" style={inputStyle}>
+              {CURRENCIES.map((c) => <option key={c} value={c}>{CURRENCY_META[c].symbol}</option>)}
+            </select>
+          </div>
+        </Field>
+        <Field label="קישור Google Maps לאישור מיקום ההזמנה (או שם המקום)"><input value={h.mapsLink} onChange={(e) => set("mapsLink", e.target.value)} placeholder="https://maps.app.goo.gl/… או שם המלון" className={inputCls} style={inputStyle} /></Field>
+        <Field label="סטטוס תשלום"><PaidToggle paid={h.paid} onChange={(v) => set("paid", v)} /></Field>
+        <Field label="הערות (מס׳ הזמנה, צ׳ק-אאוט, ארוחת בוקר וכו׳)"><textarea value={h.notes} onChange={(e) => set("notes", e.target.value)} rows={2} className={inputCls + " resize-none"} style={inputStyle} /></Field>
+      </div>
+      <div className="flex gap-2">
+        <button onClick={save} className="flex-1 rounded-xl py-2 text-sm font-semibold text-white flex items-center justify-center gap-1" style={{ backgroundColor: INDIGO }}><Check size={15} /> שמירה</button>
+        <button onClick={onCancel} className="rounded-xl px-4 py-2 text-sm font-medium" style={{ backgroundColor: "#E5DAC0", color: INK }}>ביטול</button>
+      </div>
+    </div>
+  );
+}
+
+function LogiCard({ item, kind, onEdit, onRemove }) {
+  const isLocal = item.source === "local";
+  const isFlight = kind === "flight";
+  const route = isFlight ? [item.fromAirport, item.toAirport].filter(Boolean).join(" \u2190 ") : null;
+  return (
+    <div className="rounded-2xl p-3.5" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0" }}>
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+            {isFlight
+              ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: "#EAF2F6", color: "#2E86AB" }}><PlaneTakeoff size={12} /> \u05d8\u05d9\u05e1\u05d4</span>
+              : <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: "#F0EAF6", color: "#6B4F8A" }}><BedDouble size={12} /> \u05de\u05dc\u05d5\u05df</span>}
+            <PaidBadge paid={item.paid} />
+            {isLocal
+              ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#FDEDE9", color: VERMILLION }}><Lock size={9} /> \u05de\u05e7\u05d5\u05de\u05d9 \u05d0\u05e6\u05dc\u05d9 \u05d1\u05dc\u05d1\u05d3</span>
+              : <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#E7F0E9", color: "#5B8266" }}><RefreshCw size={9} /> \u05de\u05e1\u05d5\u05e0\u05db\u05e8\u05df \u05de\u05d4\u05d0\u05e7\u05e1\u05dc</span>}
+          </div>
+          <div className="font-bold text-[15px]" style={{ color: INK, fontFamily: "'Heebo', sans-serif" }}>{isFlight ? (route || item.airline || "\u05d8\u05d9\u05e1\u05d4") : item.name}</div>
+          <div className="text-xs mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: "#8A7F63" }}>
+            {isFlight ? (
+              <>
+                {item.date && <span>{formatHeShort(item.date)}</span>}
+                {item.time && <span>\u00b7 {item.time}</span>}
+                {(item.airline || item.flightNo) && <span>\u00b7 {[item.airline, item.flightNo].filter(Boolean).join(" ")}</span>}
+              </>
+            ) : (
+              <>
+                {item.location && <span className="inline-flex items-center gap-1"><MapPin size={11} />{item.location}</span>}
+                {Number(item.nights) > 0 && <span className="inline-flex items-center gap-1"><Moon size={11} />{item.nights} \u05dc\u05d9\u05dc\u05d5\u05ea</span>}
+                {item.checkIn && <span>\u00b7 \u05e6\u05f3\u05e7-\u05d0\u05d9\u05df {formatHeShort(item.checkIn)}</span>}
+              </>
+            )}
           </div>
         </div>
+        {isLocal && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={onEdit} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "#F0E9D6" }} title="\u05e2\u05e8\u05d9\u05db\u05d4"><Pencil size={13} color="#8A7F63" /></button>
+            <button onClick={onRemove} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "#FDEDE9" }} title="\u05de\u05d7\u05d9\u05e7\u05d4"><Trash2 size={13} color={VERMILLION} /></button>
+          </div>
+        )}
+      </div>
+      {item.notes && <div className="text-xs leading-relaxed mb-1.5" style={{ color: "#6B6355" }}>{item.notes}</div>}
+      <div className="flex items-center gap-2 flex-wrap">
+        {isFlight
+          ? (item.ticketLink && <LinkButton url={item.ticketLink} icon={Ticket} label="\u05d4\u05db\u05e8\u05d8\u05d9\u05e1\u05d9\u05dd" color="#2E86AB" />)
+          : (
+            <>
+              {(item.mapsLink || item.location) && <LinkButton url={item.mapsLink || item.location} icon={MapPin} label="\u05de\u05d9\u05e7\u05d5\u05dd \u05d1\u05de\u05e4\u05d5\u05ea" color="#6B4F8A" />}
+              {Number(item.price) > 0 && <span className="text-xs font-semibold" style={{ color: GOLD }}>{CURRENCY_META[item.currency]?.symbol}{Number(item.price).toLocaleString()}</span>}
+            </>
+          )}
+      </div>
+    </div>
+  );
+}
+
+function LogisticsTab({ data, setData, merged, excelStatus }) {
+  const [view, setView] = useState("flights");
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const isFlights = view === "flights";
+
+  const list = isFlights ? merged.flights : merged.hotels;
+  const localCount = list.filter((x) => x.source === "local").length;
+  const syncedCount = list.length - localCount;
+
+  const saveFlight = (fl) => {
+    setData((d) => { const l = [...(d.flights || [])]; const i = l.findIndex((x) => x.id === fl.id); if (i >= 0) l[i] = fl; else l.push(fl); return { ...d, flights: l }; });
+    setAdding(false); setEditing(null);
+  };
+  const saveHotel = (h) => {
+    setData((d) => { const l = [...(d.hotels || [])]; const i = l.findIndex((x) => x.id === h.id); if (i >= 0) l[i] = h; else l.push(h); return { ...d, hotels: l }; });
+    setAdding(false); setEditing(null);
+  };
+  const removeFlight = (id) => setData((d) => ({ ...d, flights: (d.flights || []).filter((x) => x.id !== id) }));
+  const removeHotel = (id) => setData((d) => ({ ...d, hotels: (d.hotels || []).filter((x) => x.id !== id) }));
+
+  const switchView = (v) => { setView(v); setAdding(false); setEditing(null); };
+
+  const totalNights = merged.hotels.reduce((s, h) => s + (Number(h.nights) || 0), 0);
+  const unpaidH = merged.hotels.filter((h) => !h.paid).length;
+
+  return (
+    <div className="px-4 pb-6">
+      <SectionTitle eyebrow="\u05dc\u05d5\u05d2\u05d9\u05e1\u05d8\u05d9\u05e7\u05d4" title="\u05d8\u05d9\u05e1\u05d5\u05ea \u05d5\u05de\u05dc\u05d5\u05e0\u05d5\u05ea" Icon={Plane} />
+
+      {/* segmented toggle */}
+      <div className="flex gap-1 p-1 rounded-2xl mb-4" style={{ backgroundColor: "#EFE7D4" }}>
+        <button onClick={() => switchView("flights")} className="flex-1 rounded-xl py-2 text-sm font-bold flex items-center justify-center gap-1.5 transition" style={{ backgroundColor: isFlights ? "#fff" : "transparent", color: isFlights ? "#2E86AB" : "#8A7F63", boxShadow: isFlights ? "0 1px 4px rgba(0,0,0,0.08)" : "none" }}>
+          <Plane size={15} /> \u05d8\u05d9\u05e1\u05d5\u05ea ({merged.flights.length})
+        </button>
+        <button onClick={() => switchView("hotels")} className="flex-1 rounded-xl py-2 text-sm font-bold flex items-center justify-center gap-1.5 transition" style={{ backgroundColor: !isFlights ? "#fff" : "transparent", color: !isFlights ? "#6B4F8A" : "#8A7F63", boxShadow: !isFlights ? "0 1px 4px rgba(0,0,0,0.08)" : "none" }}>
+          <Hotel size={15} /> \u05de\u05dc\u05d5\u05e0\u05d5\u05ea ({merged.hotels.length})
+        </button>
+      </div>
+
+      {!isFlights && merged.hotels.length > 0 && (
+        <div className="rounded-2xl p-3 mb-4 grid grid-cols-3 gap-2 text-center" style={{ backgroundColor: INDIGO }}>
+          <div><div className="text-lg font-extrabold text-white">{merged.hotels.length}</div><div className="text-[10px] text-white/60">\u05de\u05dc\u05d5\u05e0\u05d5\u05ea</div></div>
+          <div><div className="text-lg font-extrabold text-white">{totalNights}</div><div className="text-[10px] text-white/60">\u05e1\u05d4\u05f4\u05db \u05dc\u05d9\u05dc\u05d5\u05ea</div></div>
+          <div><div className="text-lg font-extrabold text-white">{unpaidH === 0 ? "\u2713" : unpaidH}</div><div className="text-[10px] text-white/60">{unpaidH === 0 ? "\u05d4\u05db\u05d5\u05dc \u05e9\u05d5\u05dc\u05dd" : "\u05d8\u05e8\u05dd \u05e9\u05d5\u05dc\u05de\u05d5"}</div></div>
+        </div>
       )}
+
+      {list.length === 0 && !adding && (
+        <div className="text-sm text-center py-6 rounded-2xl mb-3" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>
+          {isFlights
+            ? "\u05e2\u05d3\u05d9\u05d9\u05df \u05dc\u05d0 \u05e0\u05d5\u05e1\u05e4\u05d5 \u05d8\u05d9\u05e1\u05d5\u05ea. \u05de\u05dc\u05d0\u05d5 \u05d0\u05d5\u05ea\u05df \u05d1\u05d2\u05d9\u05dc\u05d9\u05d5\u05df '\u05d8\u05d9\u05e1\u05d5\u05ea' \u05e9\u05d1\u05d0\u05e7\u05e1\u05dc \u2014 \u05d0\u05d5 \u05d4\u05d5\u05e1\u05d9\u05e4\u05d5 \u05db\u05d0\u05df \u05de\u05e7\u05d5\u05de\u05d9\u05ea."
+            : "\u05e2\u05d3\u05d9\u05d9\u05df \u05dc\u05d0 \u05e0\u05d5\u05e1\u05e4\u05d5 \u05de\u05dc\u05d5\u05e0\u05d5\u05ea. \u05de\u05dc\u05d0\u05d5 \u05d0\u05d5\u05ea\u05dd \u05d1\u05d2\u05d9\u05dc\u05d9\u05d5\u05df '\u05de\u05dc\u05d5\u05e0\u05d5\u05ea' \u05e9\u05d1\u05d0\u05e7\u05e1\u05dc \u2014 \u05d0\u05d5 \u05d4\u05d5\u05e1\u05d9\u05e4\u05d5 \u05db\u05d0\u05df \u05de\u05e7\u05d5\u05de\u05d9\u05ea."}
+        </div>
+      )}
+
+      <div className="space-y-2.5 mb-3">
+        {list.map((item) => {
+          if (editing === item.id && item.source === "local") {
+            return isFlights
+              ? <FlightForm key={item.id} initial={item} onSave={saveFlight} onCancel={() => setEditing(null)} />
+              : <HotelForm key={item.id} initial={item} onSave={saveHotel} onCancel={() => setEditing(null)} />;
+          }
+          return <LogiCard key={item.id} item={item} kind={isFlights ? "flight" : "hotel"}
+            onEdit={() => setEditing(item.id)} onRemove={() => (isFlights ? removeFlight(item.id) : removeHotel(item.id))} />;
+        })}
+      </div>
+
+      {adding ? (
+        isFlights ? <FlightForm onSave={saveFlight} onCancel={() => setAdding(false)} /> : <HotelForm onSave={saveHotel} onCancel={() => setAdding(false)} />
+      ) : (
+        <button onClick={() => { setAdding(true); setEditing(null); }} className="w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold rounded-2xl py-2.5 text-white" style={{ backgroundColor: VERMILLION }}>
+          <Plus size={15} /> {isFlights ? "\u05d4\u05d5\u05e1\u05e4\u05ea \u05d8\u05d9\u05e1\u05d4 (\u05de\u05e7\u05d5\u05de\u05d9\u05ea)" : "\u05d4\u05d5\u05e1\u05e4\u05ea \u05de\u05dc\u05d5\u05df (\u05de\u05e7\u05d5\u05de\u05d9)"}
+        </button>
+      )}
+
+      <div className="text-[11px] mt-3 leading-relaxed px-1" style={{ color: "#B0A483" }}>
+        <div className="flex items-center gap-1.5"><RefreshCw size={10} /> \u05e4\u05e8\u05d9\u05d8\u05d9\u05dd \u05de\u05e1\u05d5\u05de\u05e0\u05d9\u05dd \u201c\u05de\u05e1\u05d5\u05e0\u05db\u05e8\u05df\u201d \u05de\u05d2\u05d9\u05e2\u05d9\u05dd \u05de\u05d2\u05d9\u05dc\u05d9\u05d5\u05e0\u05d5\u05ea '\u05d8\u05d9\u05e1\u05d5\u05ea'/'\u05de\u05dc\u05d5\u05e0\u05d5\u05ea' \u05e9\u05d1\u05d0\u05e7\u05e1\u05dc, \u05d5\u05de\u05ea\u05e2\u05d3\u05db\u05e0\u05d9\u05dd \u05d1\u05db\u05dc push.</div>
+        <div className="flex items-center gap-1.5 mt-1"><Lock size={10} /> \u05e4\u05e8\u05d9\u05d8\u05d9\u05dd \u05e9\u05de\u05d5\u05e1\u05d9\u05e4\u05d9\u05dd \u05db\u05d0\u05df \u05e0\u05e9\u05de\u05e8\u05d9\u05dd \u05de\u05e7\u05d5\u05de\u05d9\u05ea \u05d1\u05de\u05db\u05e9\u05d9\u05e8 \u05d1\u05dc\u05d1\u05d3 (\u05dc\u05d2\u05d9\u05d1\u05d5\u05d9 \u2014 \u201c\u05d2\u05d9\u05d1\u05d5\u05d9 \u05d5\u05e1\u05e0\u05db\u05e8\u05d5\u05df\u201d \u05d1\u05dc\u05e9\u05d5\u05e0\u05d9\u05ea \u05de\u05d9\u05d3\u05e2).</div>
+      </div>
     </div>
   );
 }
@@ -1430,14 +1824,6 @@ function InfoTab({ data, setData, merged, excelStatus, onRefreshExcel }) {
             ))}
           </div>
         )}
-      </Collapsible>
-
-      <Collapsible id="flights" title="הטיסות שלי" Icon={Plane}>
-        <CategoryAggregator merged={merged} data={data} category="flight" emptyText='עדיין לא נוספו טיסות. הוסיפו פריט מקטגוריית "טיסה" בכל יום רלוונטי.' />
-      </Collapsible>
-
-      <Collapsible id="hotels" title="המלונות שלי" Icon={Landmark}>
-        <CategoryAggregator merged={merged} data={data} category="hotel" emptyText='עדיין לא נוספו מלונות. הוסיפו פריט מקטגוריית "מלון" ביום הצ׳ק-אין.' />
       </Collapsible>
 
       <Collapsible id="backup" title="גיבוי וסנכרון בין מכשירים" Icon={Link2}>
@@ -1807,10 +2193,11 @@ export default function JapanTripApp() {
 
   const TABS = [
     { id: "home", label: "בית", Icon: Home },
-    { id: "calendar", label: "לוח שנה", Icon: CalendarDays },
-    { id: "weather", label: "מזג אוויר", Icon: Cloud },
+    { id: "calendar", label: "לו״ז", Icon: CalendarDays },
+    { id: "logistics", label: "טיסות ומלון", Icon: Plane },
+    { id: "weather", label: "מזג", Icon: Cloud },
     { id: "budget", label: "תקציב", Icon: Wallet },
-    { id: "recommend", label: "לאן עכשיו", Icon: Compass },
+    { id: "recommend", label: "לאן", Icon: Compass },
     { id: "info", label: "מידע", Icon: Info },
   ];
 
@@ -1835,6 +2222,7 @@ export default function JapanTripApp() {
       <div className="max-w-lg mx-auto pb-24">
         {tab === "home" && <HomeTab data={data} setData={setData} merged={merged} weather={weather} weatherStatus={weatherStatus} fx={fx} onOpenDay={(k) => { setTab("calendar"); setOpenDay(k); }} />}
         {tab === "calendar" && <CalendarTab merged={merged} onPick={setOpenDay} />}
+        {tab === "logistics" && <LogisticsTab data={data} setData={setData} merged={merged} excelStatus={excel.status} />}
         {tab === "weather" && <WeatherTab weather={weather} status={weatherStatus} />}
         {tab === "budget" && <BudgetTab data={data} setData={setData} merged={merged} fx={fx} />}
         {tab === "recommend" && <RecommendTab />}
@@ -1844,11 +2232,11 @@ export default function JapanTripApp() {
       {openDay && <DaySheet dateKey={openDay} data={data} setData={setData} merged={merged} weather={weather} weatherStatus={weatherStatus} onClose={() => setOpenDay(null)} />}
 
       <nav className="fixed bottom-0 left-0 right-0 z-40">
-        <div className="max-w-lg mx-auto grid grid-cols-6 gap-0.5 p-1.5 rounded-t-3xl" style={{ backgroundColor: "#fff", boxShadow: "0 -4px 20px rgba(0,0,0,0.08)" }}>
+        <div className="max-w-lg mx-auto grid grid-cols-7 gap-0.5 px-1 py-1.5 rounded-t-3xl" style={{ backgroundColor: "#fff", boxShadow: "0 -4px 20px rgba(0,0,0,0.08)" }}>
           {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-0.5 py-1.5 rounded-2xl transition" style={{ backgroundColor: tab === t.id ? "#EFE7D4" : "transparent" }}>
-              <t.Icon size={17} color={tab === t.id ? VERMILLION : "#B0A483"} />
-              <span className="text-[8.5px] font-semibold leading-none" style={{ color: tab === t.id ? INDIGO : "#B0A483" }}>{t.label}</span>
+            <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-0.5 py-1.5 rounded-xl transition" style={{ backgroundColor: tab === t.id ? "#EFE7D4" : "transparent" }}>
+              <t.Icon size={16} color={tab === t.id ? VERMILLION : "#B0A483"} />
+              <span className="text-[8px] font-semibold leading-none whitespace-nowrap" style={{ color: tab === t.id ? INDIGO : "#B0A483" }}>{t.label}</span>
             </button>
           ))}
         </div>
