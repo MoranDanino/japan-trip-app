@@ -7,7 +7,7 @@ import {
   CloudDrizzle, Wallet, Backpack, Info, Trash2, Pencil, ExternalLink, Home,
   CalendarDays, Plane, ShieldAlert, Wifi, Landmark, ChevronDown, StickyNote,
   Volume2, Languages, Send, MessageCircle, FileSpreadsheet, RefreshCw, Lock,
-  Compass, Navigation, WifiOff, Coins,
+  Compass, Navigation, WifiOff, Coins, Car, FileText, Link2,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -75,6 +75,8 @@ const CATEGORIES = [
   { id: "tickets", label: "כרטיסים נרכשו", color: "#C9A24B", Icon: Ticket },
   { id: "transport", label: "תחבורה", color: "#6B7280", Icon: Bus },
   { id: "flight", label: "טיסה", color: "#2E86AB", Icon: Plane },
+  { id: "car", label: "רכב שכור", color: "#3E8E7E", Icon: Car },
+  { id: "hotel", label: "מלון", color: "#6B4F8A", Icon: Landmark },
   { id: "shopping", label: "קניות", color: "#C9678A", Icon: ShoppingBag },
   { id: "other", label: "אחר", color: "#8A8578", Icon: Star },
 ];
@@ -216,15 +218,46 @@ function speak(text, lang) {
   } catch (e) { return false; }
 }
 
-/* Quick recommendation tips — general, stable, place-level (not fragile venue picks) */
+/* Quick recommendation tips — general, stable, place+interest specific (never shown for the wrong kind) */
 const RECOMMEND_TIPS = {
-  tokyo: "אזורים מומלצים לשוטט בהם: שיבויה, שינג'וקו, אסאקוסה (מסורתי יותר), ואוֹרֶגָה (בייסייד). לכל אזור אופי שונה לגמרי.",
-  osaka: "דוטונבורי ידוע כמרכז אוכל הרחוב והבילוי הלילי — טוב במיוחד לחיפוש 'אוכל רחוב' או 'בר'.",
-  kyoto: "גיון וגם פונטוצ'ו מוכרים כאזורי הבילוי/מסעדות המסורתיים; סביב תחנת קיוטו יש גם קניות.",
-  seoul: "הונגדה (Hongdae) ואיטאוון (Itaewon) ידועים כאזורי חיי לילה; מיונגדונג לקניות; בוקצ'ון לאווירה מסורתית.",
-  kobe: "אזור הנמל (Harborland) מוכר לבילוי ונוף, ואזור קיטאנו לרובעים ישנים.",
-  kanazawa: "אזור היגשי-צ'איה מוכר כרובע הבתי-תה המסורתי; שוק אומיצ'ו לאוכל טרי.",
-  hakone: "אזור גורה ואגם אשינוקו מוכרים לבילוי ונופים עם המעיינות החמים.",
+  tokyo: {
+    attraction: "אסאקוסה (מקדשים ומסורת) ושיבויה (עירוני ותוסס) הם שני קטבים שכדאי לראות את שניהם.",
+    food: "שינג'וקו ושיבויה מלאות במסעדות בכל תקציב; אסאקוסה טובה לאוכל מסורתי.",
+    cafe: "אזור שיבויה/הראג'וקו ידוע בבתי קפה עיצוביים ותמות.",
+    bar: "שינג'וקו (במיוחד גולדן גאי) ושיבויה נחשבים למרכזי חיי הלילה.",
+    shopping: "גינזה לקניות יוקרה, שיבויה/הראג'וקו לאופנה צעירה, אקיהברה לאלקטרוניקה.",
+    nature: "גני שינג'וקו-גיואן נותנים נשימה ירוקה בתוך העיר.",
+  },
+  osaka: {
+    attraction: "טירת אוסקה ואזור דוטונבורי הם הליבה התיירותית.",
+    food: "דוטונבורי נחשב לבירת אוכל הרחוב של יפן — טאקויאקי, אוקונומיאקי ועוד.",
+    bar: "דוטונבורי ואמריקה-מורה ידועים כאזורי בילוי לילי.",
+    shopping: "שינסאיבאשי לקניות מרכזיות, דן-דן טאון לאלקטרוניקה.",
+  },
+  kyoto: {
+    attraction: "פושימי אינארי וארשיאמה מוכרים כאתרים המרכזיים; גיון לרובע המסורתי.",
+    food: "פונטוצ'ו וגם נישיקי מרקט טובים לאוכל מקומי.",
+    nature: "ארשיאמה (יער הבמבוק) ופארק מארויאמה מוכרים לנוף.",
+    shopping: "האזור סביב תחנת קיוטו וגם שיג'ו-קוואראמצ'י.",
+  },
+  seoul: {
+    attraction: "גיונגבוקגונג ובוקצ'ון האנוק וילג' ידועים כליבה ההיסטורית.",
+    food: "מיונגדונג וגוואנגג'אנג מארקט טובים לאוכל רחוב.",
+    bar: "הונגדה ואיטאוון ידועים כאזורי חיי לילה מרכזיים.",
+    shopping: "מיונגדונג ודונגדימון ידועים לקניות.",
+    cafe: "הונגדה וגם סאמצ'וֹנג-דונג ידועים בבתי קפה עיצוביים.",
+  },
+  kobe: {
+    attraction: "אזור הנמל (Harborland) ואזור קיטאנו לבתים ישנים.",
+    nature: "הר רוקו מוכר לנוף פנורמי על העיר.",
+  },
+  kanazawa: {
+    attraction: "גן קנרוקואן נחשב לאחד משלושת גני הנוי המפורסמים ביפן.",
+    food: "שוק אומיצ'ו טוב לפירות ים טריים.",
+  },
+  hakone: {
+    nature: "אגם אשינוקו ורכבל הקוֹוואקודאני ידועים בנוף על הר פוג'י.",
+  },
 };
 
 const WEEKDAYS_HE = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
@@ -243,6 +276,18 @@ function formatHeWeekdayShort(k) { return keyToDate(k).toLocaleDateString("he-IL
 function todayKey() { return toKey(new Date()); }
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
 function slug(s) { return String(s || "").trim().replace(/\s+/g, "-").replace(/[^\w\-א-ת]/g, ""); }
+function encodeSyncCode(obj) {
+  const json = JSON.stringify(obj);
+  const utf8 = new TextEncoder().encode(json);
+  let binary = ""; utf8.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary);
+}
+function decodeSyncCode(code) {
+  const binary = atob(code.trim());
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
 function tripDays() { const days = []; let cur = TRIP_START; while (dayDiff(cur, TRIP_END) >= 0) { days.push(cur); cur = addDays(cur, 1); } return days; }
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371, toRad = (x) => (x * Math.PI) / 180;
@@ -287,6 +332,7 @@ const DEFAULT_DATA = {
   dayNotes: {},
   itinerary: {},
   visitedOverrides: {},
+  docLinks: {},            // { [itemId]: url } — private per-item document links, always local only
   packingChecked: {},     // { [itemSlug]: boolean }
   packingLocalItems: [],  // [{id,label}] — extra items added only in-app
   budgetEntries: [],      // [{id, category, place, label, amount, currency}]
@@ -666,15 +712,18 @@ function MiniWeatherBadge({ code, max }) {
 /* ------------------------------------------------------------------ */
 
 function ItemForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(initial || { time: "", name: "", category: "attraction", place: "", openTime: "", closeTime: "", notes: "", price: "", visited: false, flightType: "takeoff", flightCity: "" });
+  const [form, setForm] = useState(initial || { time: "", name: "", category: "attraction", place: "", openTime: "", closeTime: "", notes: "", price: "", visited: false, flightType: "takeoff", flightCity: "", carType: "pickup", carLocation: "", carCompany: "" });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const isFlight = form.category === "flight";
+  const isCar = form.category === "car";
 
   const handleSave = () => {
     let name = form.name.trim();
     if (isFlight && !name && form.flightCity) name = form.flightType === "landing" ? `נחיתה ב${form.flightCity}` : `המראה ל${form.flightCity}`;
+    if (isCar && !name && form.carLocation) name = form.carType === "return" ? `החזרת רכב ב${form.carLocation}` : `איסוף רכב ב${form.carLocation}`;
     if (!name) return;
-    onSave({ ...form, name, id: form.id || uid() });
+    const place = isCar && !form.place ? form.carLocation : form.place;
+    onSave({ ...form, name, place, id: form.id || uid() });
   };
 
   return (
@@ -711,22 +760,41 @@ function ItemForm({ initial, onSave, onCancel }) {
         </div>
       ) : null}
 
-      <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>{isFlight ? "שם מותאם אישית (אופציונלי — אחרת ייווצר אוטומטית)" : "שם המקום / הפעילות"}</label>
-      <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={isFlight ? "לדוגמה: טיסת JAL 123" : "לדוגמה: מקדש סנסו־ג'י"} className="w-full rounded-lg px-3 py-2 text-sm border outline-none mb-2" style={{ borderColor: "#E5DAC0" }} />
-
-      <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>מיקום מדויק — הדביקו קישור ישיר (Google Maps / Naver Map), או כתבו שם מקום. השאירו ריק כדי לחפש לפי השם שלמעלה</label>
-      <input value={form.place} onChange={(e) => set("place", e.target.value)} placeholder="https://maps.app.goo.gl/... או Sensoji Temple, Tokyo" className="w-full rounded-lg px-3 py-2 text-sm border outline-none mb-2" style={{ borderColor: "#E5DAC0" }} />
-
-      <div className="grid grid-cols-2 gap-2 mb-2">
-        <div>
-          <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>שעת פתיחה</label>
-          <input type="time" value={form.openTime} onChange={(e) => set("openTime", e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm border outline-none" style={{ borderColor: "#E5DAC0" }} />
+      {isCar ? (
+        <div className="rounded-xl p-2.5 mb-2" style={{ backgroundColor: "#EAF6F2", border: "1px solid #C7E5DC" }}>
+          <div className="flex gap-2 mb-2">
+            <button type="button" onClick={() => set("carType", "pickup")} className="flex-1 rounded-lg py-1.5 text-xs font-semibold" style={{ backgroundColor: form.carType === "pickup" ? "#3E8E7E" : "#fff", color: form.carType === "pickup" ? "#fff" : "#3E8E7E", border: "1px solid #3E8E7E" }}>🚗 איסוף רכב</button>
+            <button type="button" onClick={() => set("carType", "return")} className="flex-1 rounded-lg py-1.5 text-xs font-semibold" style={{ backgroundColor: form.carType === "return" ? "#3E8E7E" : "#fff", color: form.carType === "return" ? "#fff" : "#3E8E7E", border: "1px solid #3E8E7E" }}>🔑 החזרת רכב</button>
+          </div>
+          <label className="text-[11px] font-medium block mb-1" style={{ color: "#4E8577" }}>חברת השכרה</label>
+          <input value={form.carCompany} onChange={(e) => set("carCompany", e.target.value)} placeholder="לדוגמה: Toyota Rent a Car" className="w-full rounded-lg px-3 py-1.5 text-sm border outline-none mb-2" style={{ borderColor: "#C7E5DC" }} />
+          <label className="text-[11px] font-medium block mb-1" style={{ color: "#4E8577" }}>מיקום {form.carType === "return" ? "ההחזרה" : "האיסוף"}</label>
+          <input value={form.carLocation} onChange={(e) => set("carLocation", e.target.value)} placeholder="לדוגמה: Kansai Airport Rent-a-Car Counter" className="w-full rounded-lg px-3 py-1.5 text-sm border outline-none" style={{ borderColor: "#C7E5DC" }} />
         </div>
-        <div>
-          <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>שעת סגירה</label>
-          <input type="time" value={form.closeTime} onChange={(e) => set("closeTime", e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm border outline-none" style={{ borderColor: "#E5DAC0" }} />
+      ) : null}
+
+      <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>{isFlight || isCar ? "שם מותאם אישית (אופציונלי — אחרת ייווצר אוטומטית)" : "שם המקום / הפעילות"}</label>
+      <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={isFlight ? "לדוגמה: טיסת JAL 123" : isCar ? "לדוגמה: איסוף מרכב-נובידה" : "לדוגמה: מקדש סנסו־ג'י"} className="w-full rounded-lg px-3 py-2 text-sm border outline-none mb-2" style={{ borderColor: "#E5DAC0" }} />
+
+      {!isCar && (
+        <>
+          <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>מיקום מדויק — הדביקו קישור ישיר (Google Maps / Naver Map), או כתבו שם מקום. השאירו ריק כדי לחפש לפי השם שלמעלה</label>
+          <input value={form.place} onChange={(e) => set("place", e.target.value)} placeholder="https://maps.app.goo.gl/... או Sensoji Temple, Tokyo" className="w-full rounded-lg px-3 py-2 text-sm border outline-none mb-2" style={{ borderColor: "#E5DAC0" }} />
+        </>
+      )}
+
+      {!isFlight && !isCar && (
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>שעת פתיחה</label>
+            <input type="time" value={form.openTime} onChange={(e) => set("openTime", e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm border outline-none" style={{ borderColor: "#E5DAC0" }} />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>שעת סגירה</label>
+            <input type="time" value={form.closeTime} onChange={(e) => set("closeTime", e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm border outline-none" style={{ borderColor: "#E5DAC0" }} />
+          </div>
         </div>
-      </div>
+      )}
 
       <label className="text-[11px] font-medium block mb-1" style={{ color: "#8A7F63" }}>הערות</label>
       <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} placeholder="פרטים נוספים, מס' הזמנה וכו׳" className="w-full rounded-lg px-3 py-2 text-sm border outline-none mb-3 resize-none" style={{ borderColor: "#E5DAC0" }} />
@@ -743,19 +811,26 @@ function ItemForm({ initial, onSave, onCancel }) {
 /* Timeline                                                              */
 /* ------------------------------------------------------------------ */
 
-function TimelineItem({ item, isFirst, isLast, isKorea, onToggleVisited, onEdit, onDelete }) {
+function TimelineItem({ item, isFirst, isLast, isKorea, docLink, onSaveDocLink, onToggleVisited, onEdit, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  const [addingDoc, setAddingDoc] = useState(false);
+  const [docDraft, setDocDraft] = useState(docLink || "");
   const cat = catById(item.category);
   const { Icon } = cat;
   const isFlight = item.category === "flight";
+  const isCar = item.category === "car";
   const maps = buildMapsLink(item.place || item.name, isKorea);
   const isLocal = item.source !== "excel";
+  const hasExtra = item.notes || item.openTime || item.closeTime || item.price || isLocal;
 
   return (
     <div className="flex gap-3">
       <div className="flex flex-col items-center w-8 shrink-0">
         <div className="flex-1 w-[2px]" style={{ backgroundColor: isFirst ? "transparent" : "#E5DAC0" }} />
         <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm" style={{ backgroundColor: cat.color }}>
-          {isFlight ? <span style={{ fontSize: 13 }}>{item.flightType === "landing" ? "🛬" : "🛫"}</span> : <Icon size={14} color="#fff" />}
+          {isFlight ? <span style={{ fontSize: 13 }}>{item.flightType === "landing" ? "🛬" : "🛫"}</span>
+            : isCar ? <span style={{ fontSize: 13 }}>{item.carType === "return" ? "🔑" : "🚗"}</span>
+            : <Icon size={14} color="#fff" />}
         </div>
         <div className="flex-1 w-[2px]" style={{ backgroundColor: isLast ? "transparent" : "#E5DAC0" }} />
       </div>
@@ -765,36 +840,67 @@ function TimelineItem({ item, isFirst, isLast, isKorea, onToggleVisited, onEdit,
           <HankoStamp show={item.visited} />
           <div className="p-3">
             <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
+              <button onClick={() => hasExtra && setExpanded((e) => !e)} className="flex-1 min-w-0 text-right">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   {item.time && <span className="inline-flex items-center gap-1 text-xs font-bold" style={{ color: INDIGO }}><Clock size={12} />{item.time}</span>}
                   <CategoryChip cat={cat} small />
-                  {isLocal && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#FDEDE9", color: VERMILLION }}>
-                      <Lock size={9} /> מקומי אצלי בלבד
-                    </span>
-                  )}
+                  {isLocal && <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#FDEDE9", color: VERMILLION }}><Lock size={9} /> מקומי אצלי בלבד</span>}
                 </div>
-                <div className="font-bold text-[15px]" style={{ color: INK, fontFamily: "'Heebo', sans-serif" }}>
+                <div className="font-bold text-[15px] flex items-center gap-1.5" style={{ color: INK, fontFamily: "'Heebo', sans-serif" }}>
                   {maps ? (
-                    <a href={maps.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 underline decoration-dotted underline-offset-2" style={{ color: INK }}>
+                    <a href={maps.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1.5 underline decoration-dotted underline-offset-2" style={{ color: INK }}>
                       <MapPin size={13} style={{ color: INDIGO_MID }} className="shrink-0" />{item.name}
                     </a>
                   ) : item.name}
                 </div>
-                {(item.openTime || item.closeTime) && <div className="text-xs mt-0.5" style={{ color: "#8A7F63" }}>שעות פתיחה: {item.openTime || "?"} – {item.closeTime || "?"}</div>}
-                {item.price && <div className="text-xs mt-0.5 font-medium" style={{ color: GOLD }}>~¥{item.price}</div>}
-                {item.notes && <div className="text-xs mt-1 leading-relaxed" style={{ color: "#6B6355" }}>{item.notes}</div>}
-              </div>
-              <button onClick={() => onToggleVisited(item)} className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center border-2 transition"
-                style={{ borderColor: item.visited ? VERMILLION : "#D9CBA5", backgroundColor: item.visited ? VERMILLION : "transparent" }}>
-                <Check size={16} color={item.visited ? "#fff" : "#D9CBA5"} />
               </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {docLink ? (
+                  <a href={docLink} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "#E8F0EC" }} title="פתיחת המסמך">
+                    <FileText size={15} color="#3E8E7E" />
+                  </a>
+                ) : (
+                  <button onClick={() => setAddingDoc((a) => !a)} className="w-8 h-8 rounded-full flex items-center justify-center border-2 border-dashed" style={{ borderColor: "#D9CBA5" }} title="צירוף קישור למסמך">
+                    <Link2 size={14} color="#B0A483" />
+                  </button>
+                )}
+                <span onClick={() => onToggleVisited(item)} className="w-8 h-8 rounded-full flex items-center justify-center border-2 transition cursor-pointer"
+                  style={{ borderColor: item.visited ? VERMILLION : "#D9CBA5", backgroundColor: item.visited ? VERMILLION : "transparent" }}>
+                  <Check size={16} color={item.visited ? "#fff" : "#D9CBA5"} />
+                </span>
+              </div>
             </div>
-            {isLocal && (
-              <div className="flex items-center gap-3 mt-2.5 pt-2 border-t" style={{ borderColor: "#F0E9D6" }}>
-                <button onClick={() => onEdit(item)} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: "#8A7F63" }}><Pencil size={12} /> עריכה</button>
-                <button onClick={() => onDelete(item.id)} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: VERMILLION }}><Trash2 size={12} /> מחיקה</button>
+
+            {addingDoc && (
+              <div className="flex gap-2 mt-2.5">
+                <input value={docDraft} onChange={(e) => setDocDraft(e.target.value)} autoFocus placeholder="קישור לגוגל דרייב / כרטיס / הזמנה" className="flex-1 rounded-lg px-2.5 py-1.5 text-xs border outline-none" style={{ borderColor: "#E5DAC0" }} />
+                <button onClick={() => { onSaveDocLink(item.id, docDraft.trim()); setAddingDoc(false); }} className="rounded-lg px-3 text-xs font-semibold text-white" style={{ backgroundColor: "#3E8E7E" }}>שמירה</button>
+              </div>
+            )}
+
+            {hasExtra && (
+              <button onClick={() => setExpanded((e) => !e)} className="flex items-center gap-1 text-[11px] font-medium mt-1.5" style={{ color: "#B0A483" }}>
+                {expanded ? "הצג פחות" : "עוד פרטים"} <ChevronDown size={13} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "0.2s" }} />
+              </button>
+            )}
+
+            {expanded && (
+              <div className="mt-1.5 pt-2.5 border-t" style={{ borderColor: "#F0E9D6" }}>
+                {(item.openTime || item.closeTime) && <div className="text-xs" style={{ color: "#8A7F63" }}>שעות פתיחה: {item.openTime || "?"} – {item.closeTime || "?"}</div>}
+                {item.price && <div className="text-xs mt-1 font-medium" style={{ color: GOLD }}>~¥{item.price}</div>}
+                {item.notes && <div className="text-xs mt-1.5 leading-relaxed" style={{ color: "#6B6355" }}>{item.notes}</div>}
+                {docLink && (
+                  <div className="flex items-center gap-3 mt-1.5">
+                    <button onClick={() => { setDocDraft(docLink); setAddingDoc(true); }} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: "#8A7F63" }}><Pencil size={12} /> החלפת מסמך</button>
+                    <button onClick={() => onSaveDocLink(item.id, "")} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: VERMILLION }}><Trash2 size={12} /> הסרת מסמך</button>
+                  </div>
+                )}
+                {isLocal && (
+                  <div className="flex items-center gap-3 mt-2">
+                    <button onClick={() => onEdit(item)} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: "#8A7F63" }}><Pencil size={12} /> עריכה</button>
+                    <button onClick={() => onDelete(item.id)} className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: VERMILLION }}><Trash2 size={12} /> מחיקה</button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -874,6 +980,8 @@ function DaySheet({ dateKey, data, setData, merged, weather, weatherStatus, onCl
 
           {items.map((item, idx) => (
             <TimelineItem key={item.id} item={item} isFirst={idx === 0} isLast={idx === items.length - 1} isKorea={isKorea}
+              docLink={data.docLinks[item.id] || ""}
+              onSaveDocLink={(itemId, url) => setData((d) => ({ ...d, docLinks: { ...d.docLinks, [itemId]: url } }))}
               onToggleVisited={toggleVisited} onEdit={setEditingItem} onDelete={deleteItem} />
           ))}
 
@@ -1195,6 +1303,78 @@ function QuickTranslate() {
   );
 }
 
+function CategoryAggregator({ merged, data, category, emptyText }) {
+  const rows = [];
+  Object.entries(merged.itemsByDate).forEach(([date, items]) => {
+    items.filter((i) => i.category === category).forEach((item) => rows.push({ date, item }));
+  });
+  rows.sort((a, b) => a.date.localeCompare(b.date) || (a.item.time || "99").localeCompare(b.item.time || "99"));
+  if (rows.length === 0) return <div className="text-sm text-center py-4 rounded-xl" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>{emptyText}</div>;
+  return (
+    <div className="space-y-1.5">
+      {rows.map(({ date, item }) => {
+        const docLink = data.docLinks[item.id];
+        return (
+          <div key={item.id} className="rounded-xl px-3 py-2" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0" }}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold truncate" style={{ color: INK }}>{item.name}</div>
+                <div className="text-[11px]" style={{ color: "#8A7F63" }}>{formatHeShort(date)}{item.time && ` · ${item.time}`}</div>
+              </div>
+              {docLink ? (
+                <a href={docLink} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: "#E8F0EC" }}><FileText size={14} color="#3E8E7E" /></a>
+              ) : (
+                <span className="text-[10px] shrink-0" style={{ color: "#B0A483" }}>אין מסמך</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PersonalDataSync({ data, setData }) {
+  const [mode, setMode] = useState(null);
+  const [code, setCode] = useState("");
+  const [importText, setImportText] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState("");
+
+  const doExport = () => { setCode(encodeSyncCode(data)); setMode("export"); };
+  const doCopy = async () => { try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) {} };
+  const doImport = () => {
+    try { const parsed = decodeSyncCode(importText); setData((d) => ({ ...d, ...parsed })); setStatus("success"); }
+    catch (e) { setStatus("error"); }
+  };
+
+  return (
+    <div>
+      <div className="text-xs leading-relaxed mb-3" style={{ color: "#8A7F63" }}>
+        המידע האישי שלך (מסמכים, הערות, הוצאות שהוספת) נשמר רק על המכשיר הזה — ולא עולה לגיט. כדי להעביר אותו למכשיר נוסף או לבן/בת הזוג, ייצאו כאן "קוד גיבוי" ושלחו אותו בכל דרך שנוחה (וואטסאפ, מייל) — לעולם לא דרך הריפו.
+      </div>
+      <div className="flex gap-2 mb-3">
+        <button onClick={doExport} className="flex-1 rounded-xl py-2 text-xs font-semibold text-white" style={{ backgroundColor: INDIGO }}>ייצוא קוד גיבוי</button>
+        <button onClick={() => setMode("import")} className="flex-1 rounded-xl py-2 text-xs font-semibold" style={{ backgroundColor: "#EFE7D4", color: INDIGO }}>ייבוא מקוד</button>
+      </div>
+      {mode === "export" && (
+        <div>
+          <textarea readOnly value={code} rows={4} onClick={(e) => e.target.select()} className="w-full rounded-lg px-2.5 py-2 text-[10px] border outline-none mb-2 resize-none" style={{ borderColor: "#E5DAC0", fontFamily: "monospace" }} />
+          <button onClick={doCopy} className="text-xs font-semibold" style={{ color: INDIGO_MID }}>{copied ? "הועתק! ✓" : "העתקת הקוד"}</button>
+        </div>
+      )}
+      {mode === "import" && (
+        <div>
+          <textarea value={importText} onChange={(e) => { setImportText(e.target.value); setStatus(""); }} rows={4} placeholder="הדביקו כאן קוד גיבוי" className="w-full rounded-lg px-2.5 py-2 text-[10px] border outline-none mb-2 resize-none" style={{ borderColor: "#E5DAC0", fontFamily: "monospace" }} />
+          <button onClick={doImport} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white" style={{ backgroundColor: VERMILLION }}>ייבוא (ידרוס נתונים קיימים)</button>
+          {status === "success" && <div className="text-xs mt-1.5" style={{ color: "#5B8266" }}>יובא בהצלחה ✓</div>}
+          {status === "error" && <div className="text-xs mt-1.5" style={{ color: VERMILLION }}>קוד לא תקין</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InfoTab({ data, setData, merged, excelStatus, onRefreshExcel }) {
   const [newItem, setNewItem] = useState("");
   const togglePack = (item) => setData((d) => ({ ...d, packingChecked: { ...d.packingChecked, [slug(item.label)]: !item.checked } }));
@@ -1214,6 +1394,18 @@ function InfoTab({ data, setData, merged, excelStatus, onRefreshExcel }) {
 
   const checkedCount = merged.packingList.filter((p) => p.checked).length;
 
+  const myDocs = Object.entries(data.docLinks)
+    .filter(([, url]) => url)
+    .map(([itemId, url]) => {
+      for (const [date, items] of Object.entries(merged.itemsByDate)) {
+        const item = items.find((i) => i.id === itemId);
+        if (item) return { date, item, url };
+      }
+      return null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
   return (
     <div className="px-4 pb-6">
       <SectionTitle eyebrow="שימושי לדרך" title="מידע שימושי" Icon={Info} />
@@ -1222,25 +1414,72 @@ function InfoTab({ data, setData, merged, excelStatus, onRefreshExcel }) {
       <Collapsible id="jp" title="מילון עברית ↔ יפנית" Icon={Landmark}><DictionarySection flag="🇯🇵" dictionary={DICTIONARY_JP} lang="ja-JP" /></Collapsible>
       <Collapsible id="kr" title="מילון עברית ↔ קוריאנית" Icon={Landmark}><DictionarySection flag="🇰🇷" dictionary={DICTIONARY_KR} lang="ko-KR" /></Collapsible>
 
-      <Collapsible id="packing" title={`רשימת אריזה (${checkedCount}/${merged.packingList.length})`} Icon={Backpack}>
-        <div className="space-y-1.5 mb-3">
-          {merged.packingList.map((p) => (
-            <div key={p.id} className="flex items-center gap-2">
-              <button onClick={() => togglePack(p)} className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0" style={{ borderColor: p.checked ? INDIGO : "#D9CBA5", backgroundColor: p.checked ? INDIGO : "transparent" }}>{p.checked && <Check size={12} color="#fff" />}</button>
-              <span className={`text-sm flex-1 ${p.checked ? "line-through opacity-50" : ""}`} style={{ color: INK }}>{p.label}</span>
-              {p.source !== "excel" && <button onClick={() => removePack(p)}><X size={13} color="#B0A483" /></button>}
-            </div>
-          ))}
+      <Collapsible id="docs" title={`המסמכים שלי (${myDocs.length})`} Icon={FileText}>
+        <div className="text-xs leading-relaxed mb-2" style={{ color: "#8A7F63" }}>
+          קישורים למסמכים (כרטיסים, אישורי הזמנה) שצירפתם לפריטים בלוז. הדרך הכי נוחה: שתפו את הקובץ מה-Google Drive האישי שלכם עם "כל מי שיש לו קישור יכול לצפות", והדביקו כאן את קישור השיתוף. הרשימה הזו מרכזת את כל המסמכים במקום אחד — לא צריך לחפש יום-יום בלוז.
         </div>
-        <div className="flex gap-2">
-          <input value={newItem} onChange={(e) => setNewItem(e.target.value)} placeholder="הוספת פריט אישי" className="flex-1 rounded-lg px-3 py-1.5 text-sm border outline-none" style={{ borderColor: "#E5DAC0" }} />
-          <button onClick={addPack} className="rounded-lg px-3 text-white" style={{ backgroundColor: INDIGO }}><Plus size={14} /></button>
-        </div>
+        {myDocs.length === 0 ? (
+          <div className="text-sm text-center py-4 rounded-xl" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>עדיין לא צירפתם מסמכים. בכל פריט בלוז יש כפתור 📎 קטן לצירוף קישור.</div>
+        ) : (
+          <div className="space-y-1.5">
+            {myDocs.map(({ date, item, url }) => (
+              <a key={item.id} href={url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-xl px-3 py-2 text-sm" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0" }}>
+                <span className="flex items-center gap-2 min-w-0"><FileText size={14} style={{ color: "#3E8E7E" }} className="shrink-0" /><span className="truncate" style={{ color: INK }}>{item.name}</span></span>
+                <span className="text-[11px] shrink-0" style={{ color: "#8A7F63" }}>{formatHeShort(date)}</span>
+              </a>
+            ))}
+          </div>
+        )}
       </Collapsible>
 
-      <Collapsible id="sync" title="עדכון הנתונים" Icon={RefreshCw}>
+      <Collapsible id="flights" title="הטיסות שלי" Icon={Plane}>
+        <CategoryAggregator merged={merged} data={data} category="flight" emptyText='עדיין לא נוספו טיסות. הוסיפו פריט מקטגוריית "טיסה" בכל יום רלוונטי.' />
+      </Collapsible>
+
+      <Collapsible id="hotels" title="המלונות שלי" Icon={Landmark}>
+        <CategoryAggregator merged={merged} data={data} category="hotel" emptyText='עדיין לא נוספו מלונות. הוסיפו פריט מקטגוריית "מלון" ביום הצ׳ק-אין.' />
+      </Collapsible>
+
+      <Collapsible id="backup" title="גיבוי וסנכרון בין מכשירים" Icon={Link2}>
+        <PersonalDataSync data={data} setData={setData} />
+      </Collapsible>
+
+      <Collapsible id="sync" title="עדכון הלו״ז מהאקסל" Icon={RefreshCw}>
         <div className="text-xs leading-relaxed mb-2" style={{ color: "#8A7F63" }}>הלו"ז, התקציב ורשימת האריזה מתעדכנים אוטומטית. אפשר גם להוסיף פרטים אישיים ישירות כאן באפליקציה בכל מקום שמסומן ב-🔒.</div>
         <button onClick={onRefreshExcel} className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5" style={{ backgroundColor: "#EFE7D4", color: INDIGO }}><RefreshCw size={12} /> רענון עכשיו</button>
+      </Collapsible>
+
+      <Collapsible id="prep" title="הכנות לפני הטיסה" Icon={ShieldAlert}>
+        <div className="text-sm space-y-3" style={{ color: INK }}>
+          <div className="rounded-xl p-3" style={{ backgroundColor: "#EAF2F6", border: "1px solid #C7DCE5" }}>
+            <div className="font-bold text-xs mb-1" style={{ color: "#2E86AB" }}>🇯🇵 יפן — Visit Japan Web</div>
+            <div className="text-xs leading-relaxed">אינה חובה, אבל מומלצת מאוד — ממלאים מראש כרטיס כניסה + הצהרת מכס דיגיטלית, מקבלים קוד QR שמזרז משמעותית את התור בכניסה (בעיקר בשדות הגדולים כמו הנדה/נריטה/קנסאי). הרשמה בכתובת <span dir="ltr">vjw-lp.digital.go.jp</span>, מומלץ כשבוע-שבועיים לפני הטיסה.</div>
+          </div>
+          <div className="rounded-xl p-3" style={{ backgroundColor: "#EAF6F2", border: "1px solid #C7E5DC" }}>
+            <div className="font-bold text-xs mb-1" style={{ color: "#3E8E7E" }}>🇰🇷 קוריאה — פטורים מ-K-ETA, אבל...</div>
+            <div className="text-xs leading-relaxed">אזרחים ישראלים פטורים מ-K-ETA עד סוף 2026. <b>אבל</b> — החל מ-1.1.2026 קוריאה עברה לטופס כניסה דיגיטלי חובה (e-Arrival Card) לכל מי שאין לו K-ETA, כולל פטורים. יש למלא אותו תוך 3 ימים לפני כל כניסה לקוריאה בנפרד. שווה לבדוק את הפרטים המדויקים סמוך לטיסה, כי זה עדכון טרי.</div>
+          </div>
+          <div className="text-[11px]" style={{ color: "#B0A483" }}>המידע עודכן ממקורות רשמיים; מומלץ לוודא סמוך למועד הטיסה שלא היה שינוי נוסף.</div>
+        </div>
+
+        <div className="mt-3 pt-3 border-t" style={{ borderColor: "#F0E9D6" }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-bold text-sm flex items-center gap-1.5" style={{ color: INDIGO }}><Backpack size={14} /> רשימת אריזה ({checkedCount}/{merged.packingList.length})</span>
+          </div>
+          <div className="space-y-1.5 mb-3">
+            {merged.packingList.map((p) => (
+              <div key={p.id} className="flex items-center gap-2">
+                <button onClick={() => togglePack(p)} className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0" style={{ borderColor: p.checked ? INDIGO : "#D9CBA5", backgroundColor: p.checked ? INDIGO : "transparent" }}>{p.checked && <Check size={12} color="#fff" />}</button>
+                <span className={`text-sm flex-1 ${p.checked ? "line-through opacity-50" : ""}`} style={{ color: INK }}>{p.label}</span>
+                {p.source !== "excel" && <button onClick={() => removePack(p)}><X size={13} color="#B0A483" /></button>}
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input value={newItem} onChange={(e) => setNewItem(e.target.value)} placeholder="הוספת פריט אישי" className="flex-1 rounded-lg px-3 py-1.5 text-sm border outline-none" style={{ borderColor: "#E5DAC0" }} />
+            <button onClick={addPack} className="rounded-lg px-3 text-white" style={{ backgroundColor: INDIGO }}><Plus size={14} /></button>
+          </div>
+        </div>
       </Collapsible>
 
       <Collapsible id="emergency" title="מספרי חירום ומידע נוסף" Icon={ShieldAlert}>
@@ -1263,9 +1502,12 @@ function InfoTab({ data, setData, merged, excelStatus, onRefreshExcel }) {
 const RECOMMEND_KINDS = [
   { id: "attraction", label: "אטרקציה", query: "אטרקציות מומלצות" },
   { id: "food", label: "אוכל", query: "מסעדות מומלצות" },
+  { id: "cafe", label: "קפה", query: "בתי קפה מומלצים" },
   { id: "bar", label: "בר / חיי לילה", query: "בארים מומלצים" },
   { id: "shopping", label: "קניות", query: "קניות מומלץ" },
   { id: "nature", label: "טבע / נוף", query: "נוף וטבע מומלץ" },
+  { id: "convenience", label: "בית מרקחת / קונביניינס", query: "בית מרקחת או חנות נוחות קרובה" },
+  { id: "transit", label: "תחנה קרובה", query: "תחנת רכבת או אוטובוס קרובה" },
 ];
 
 function RecommendTab() {
@@ -1276,7 +1518,7 @@ function RecommendTab() {
   const [extra, setExtra] = useState("");
 
   const useMyLocation = () => {
-    if (!("geolocation" in navigator)) { setLocError("המכשיר לא תומך באיתור מיקום."); return; }
+    if (!("geolocation" in navigator)) { setLocError("המכשיר/הדפדפן הזה לא תומך באיתור מיקום — בחרו יעד ידנית למטה."); return; }
     setLocating(true); setLocError("");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -1286,8 +1528,13 @@ function RecommendTab() {
         const place = PLACES.find((p) => p.weatherCity === nearest) || null;
         setSelectedPlace(place?.id || null); setLocating(false);
       },
-      () => { setLocError("לא הצלחנו לקבל הרשאת מיקום — בחרו יעד ידנית למטה."); setLocating(false); },
-      { timeout: 8000 }
+      (err) => {
+        setLocating(false);
+        if (err.code === 1) setLocError("ההרשאה למיקום נחסמה בדפדפן. אפשר לאשר אותה בהגדרות האתר (לחיצה על סמל המנעול ליד הכתובת), או פשוט לבחור יעד ידנית למטה.");
+        else if (err.code === 3) setLocError("איתור המיקום לקח יותר מדי זמן. נסו שוב, או בחרו יעד ידנית למטה.");
+        else setLocError("לא הצלחנו לזהות מיקום מדויק כרגע. בחרו יעד ידנית למטה.");
+      },
+      { timeout: 12000, maximumAge: 5 * 60 * 1000 }
     );
   };
 
@@ -1296,7 +1543,7 @@ function RecommendTab() {
   const kindInfo = RECOMMEND_KINDS.find((k) => k.id === kind);
   const query = `${kindInfo.label} ${extra}`.trim();
   const searchLink = place ? buildMapsLink(`${query} ${place.label}`, isKorea) : null;
-  const tip = place ? RECOMMEND_TIPS[place.weatherCity] : null;
+  const tip = (place && RECOMMEND_TIPS[place.weatherCity]) ? RECOMMEND_TIPS[place.weatherCity][kind] : null;
 
   return (
     <div className="px-4 pb-6">
