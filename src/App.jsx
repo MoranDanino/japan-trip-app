@@ -2117,6 +2117,94 @@ function UpcomingDayCard({ dateKey, merged, weather, weatherStatus, onOpen }) {
   );
 }
 
+/* Pick the best available forecast for a city: prefer the requested date,
+   else the nearest upcoming date, else the first available. Never returns
+   undefined when the city has ANY data — this is what makes the home page
+   show weather even when the device's "today" key isn't in the dataset
+   (e.g. Japan is a calendar day ahead of the phone's timezone). */
+function bestWeather(weather, cityId, preferKey) {
+  const c = weather && weather[cityId];
+  if (!c) return null;
+  if (preferKey && c[preferKey]) return { ...c[preferKey], dateKey: preferKey };
+  const keys = Object.keys(c).sort();
+  if (keys.length === 0) return null;
+  const todayK = todayKey();
+  const key = keys.find((k) => k >= todayK) || keys[keys.length - 1];
+  return { ...c[key], dateKey: key };
+}
+
+function DestWeatherCard({ placeId, weather, weatherStatus, size = "small", roleLabel }) {
+  const p = placeById(placeId);
+  if (!p) return null;
+  const wb = p.weatherCity ? bestWeather(weather, p.weatherCity, todayKey()) : null;
+  const big = size === "big";
+  const isToday = wb && wb.dateKey === todayKey();
+  const V = wb ? weatherVisual(wb.code) : null;
+  return (
+    <div className="rounded-2xl" style={{ background: `linear-gradient(135deg, ${p.grad[0]}, ${p.grad[1]})`, padding: big ? 16 : 12 }}>
+      {roleLabel && <div className={`font-semibold text-white/70 mb-1 ${big ? "text-xs" : "text-[10px]"}`}>{roleLabel}</div>}
+      <div className="flex items-center gap-2 mb-1">
+        <span className={big ? "text-3xl" : "text-xl"}>{p.emoji}</span>
+        <span className={`text-white font-bold ${big ? "text-lg" : "text-xs leading-tight"}`}>{p.label}</span>
+      </div>
+      {wb && V ? (
+        <>
+          <div className={`flex items-center gap-1.5 text-white font-extrabold ${big ? "text-2xl" : "text-sm"}`}>
+            {React.createElement(V.Icon, { size: big ? 26 : 16, color: "#fff" })}
+            {wb.max}°<span className="text-white/70 font-bold">/ {wb.min}°</span>
+          </div>
+          <div className={`text-white/70 ${big ? "text-xs mt-1" : "text-[10px]"}`}>
+            {V.label}{isToday ? " · כרגע" : ` · ${formatHeShort(wb.dateKey)}`}{weatherStatus === "cached" ? " · לא מעודכן" : ""}
+          </div>
+        </>
+      ) : weatherStatus === "loading" ? (
+        <div className="text-white/70 text-xs">טוען תחזית…</div>
+      ) : p.weatherCity ? (
+        <div className="text-white/70 text-[11px]">תחזית תופיע כשנתקרב לתאריך</div>
+      ) : (
+        <div className="text-white/70 text-[11px]">יעד פתוח</div>
+      )}
+    </div>
+  );
+}
+
+function DualClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const timeIn = (tz) => new Intl.DateTimeFormat("he-IL", { timeZone: tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now);
+  const dateIn = (tz) => new Intl.DateTimeFormat("he-IL", { timeZone: tz, weekday: "short", day: "numeric", month: "numeric" }).format(now);
+
+  // whole-hour offset between the two zones (DST-aware, computed live)
+  const offsetMin = (tz) => (new Date(now.toLocaleString("en-US", { timeZone: tz })) - new Date(now.toLocaleString("en-US", { timeZone: "UTC" }))) / 60000;
+  const diffH = Math.round((offsetMin("Asia/Tokyo") - offsetMin("Asia/Jerusalem")) / 60);
+
+  const Tile = ({ flag, label, tz, tint, accent }) => (
+    <div className="flex-1 rounded-xl px-3 py-2 text-center" style={{ backgroundColor: tint }}>
+      <div className="text-[11px] font-semibold mb-0.5" style={{ color: accent }}>{flag} {label}</div>
+      <div className="text-xl font-extrabold" style={{ color: INK, fontVariantNumeric: "tabular-nums", fontFamily: "'Heebo', sans-serif" }}>{timeIn(tz)}</div>
+      <div className="text-[10px]" style={{ color: "#8A7F63" }}>{dateIn(tz)}</div>
+    </div>
+  );
+
+  return (
+    <div className="rounded-2xl p-3 mb-5" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0" }}>
+      <div className="flex items-center gap-1.5 mb-2">
+        <Clock size={15} style={{ color: GOLD }} />
+        <span className="text-sm font-bold" style={{ color: INDIGO }}>שעון ישראל · יפן</span>
+        <span className="text-[10px] mr-auto" style={{ color: "#B0A483" }}>יפן +{diffH} שעות</span>
+      </div>
+      <div className="flex gap-2">
+        <Tile flag="🇮🇱" label="ישראל" tz="Asia/Jerusalem" tint="#EAF2F6" accent="#2E86AB" />
+        <Tile flag="🇯🇵" label="יפן" tz="Asia/Tokyo" tint="#FDEDE9" accent={VERMILLION} />
+      </div>
+    </div>
+  );
+}
+
 function HomeTab({ data, setData, merged, weather, weatherStatus, fx, onOpenDay }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const today = todayKey();
@@ -2135,16 +2223,15 @@ function HomeTab({ data, setData, merged, weather, weatherStatus, fx, onOpenDay 
   const baseIdx = afterTrip ? -1 : Math.max(0, Math.min(dayDiff(TRIP_START, today), days.length - 1));
   const next3 = baseIdx >= 0 ? days.slice(baseIdx, baseIdx + 3) : [];
 
-  // nearest + next distinct destination for the featured weather cards
-  const nearestPlaceId = baseIdx >= 0 ? merged.cityForDate(days[baseIdx]) : null;
-  let nextPlaceId = null;
+  // primary destination (where we should be) + up to 2 next distinct destinations
+  const primaryPlaceId = baseIdx >= 0 ? merged.cityForDate(days[baseIdx]) : null;
+  const nextPlaces = [];
   if (baseIdx >= 0) {
-    for (let i = baseIdx + 1; i < days.length; i++) {
+    for (let i = baseIdx + 1; i < days.length && nextPlaces.length < 2; i++) {
       const p = merged.cityForDate(days[i]);
-      if (p && p !== nearestPlaceId) { nextPlaceId = p; break; }
+      if (p && p !== primaryPlaceId && !nextPlaces.includes(p)) nextPlaces.push(p);
     }
   }
-  const featured = [nearestPlaceId, nextPlaceId].filter(Boolean);
 
   return (
     <div className="px-4 pb-6">
@@ -2163,43 +2250,28 @@ function HomeTab({ data, setData, merged, weather, weatherStatus, fx, onOpenDay 
       )}
 
       <div className="mt-5">
+        <DualClock />
         <CurrencyConverter fx={fx} />
       </div>
 
       <div className="mt-1">
-        <SectionTitle eyebrow="עדכני לרגע זה" title="מזג אוויר ליעד הקרוב" Icon={Cloud} />
-        {featured.length === 0 && <div className="text-sm text-center py-4 rounded-2xl" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0", color: "#B0A483" }}>הגדירו יעד לימים הקרובים כדי לראות תחזית ממוקדת</div>}
-        <div className="grid gap-2.5" style={{ gridTemplateColumns: featured.length > 1 ? "1fr 1fr" : "1fr" }}>
-          {featured.map((pid, idx) => {
-            const p = placeById(pid);
-            const w = p?.weatherCity ? weather[p.weatherCity]?.[today] : null;
-            return (
-              <div key={pid} className="rounded-2xl p-3" style={{ background: `linear-gradient(135deg, ${p.grad[0]}, ${p.grad[1]})` }}>
-                <div className="text-[10px] font-semibold text-white/70 mb-1">{idx === 0 ? "היעד הקרוב" : "היעד הבא"}</div>
-                <div className="flex items-center gap-2 mb-1"><span className="text-2xl">{p.emoji}</span><span className="text-white font-bold text-sm">{p.label}</span></div>
-                {weatherStatus !== "loading" && w ? (
-                  <div className="flex items-center gap-1.5 text-white text-sm font-bold">{React.createElement(weatherVisual(w.code).Icon, { size: 16 })}{w.max}° / {w.min}°</div>
-                ) : <div className="text-white/70 text-xs">טוען תחזית…</div>}
+        <SectionTitle eyebrow={inTrip ? "איפה אנחנו עכשיו" : "היעד הקרוב"} title="מזג האוויר ביעד שלנו" Icon={Cloud} />
+        {!primaryPlaceId ? (
+          <div className="text-sm text-center py-4 rounded-2xl" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0", color: "#B0A483" }}>הגדירו יעד לימים הקרובים כדי לראות תחזית ממוקדת</div>
+        ) : (
+          <>
+            <DestWeatherCard placeId={primaryPlaceId} weather={weather} weatherStatus={weatherStatus} size="big"
+              roleLabel={inTrip ? "כאן אנחנו היום" : "כאן נתחיל"} />
+            {nextPlaces.length > 0 && (
+              <div className="grid grid-cols-2 gap-2.5 mt-2.5">
+                {nextPlaces.map((pid, i) => (
+                  <DestWeatherCard key={pid} placeId={pid} weather={weather} weatherStatus={weatherStatus} size="small"
+                    roleLabel={i === 0 ? "היעד הבא" : "ואחריו"} />
+                ))}
               </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-3">
-          <div className="text-[11px] font-semibold mb-1.5" style={{ color: "#8A7F63" }}>כל היעדים</div>
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
-            {WEATHER_CITIES.map((c) => {
-              const w = weather[c.id] && weather[c.id][today];
-              const { Icon, color } = w ? weatherVisual(w.code) : { Icon: Cloud, color: "#B0A483" };
-              return (
-                <div key={c.id} className="shrink-0 rounded-xl px-3 py-2 text-center" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0", minWidth: 70 }}>
-                  <div className="text-[10px] font-semibold mb-1 whitespace-nowrap" style={{ color: INDIGO }}>{c.label}</div>
-                  {weatherStatus !== "loading" && w ? (<><Icon size={16} style={{ color, margin: "0 auto" }} /><div className="text-xs font-bold mt-1" style={{ color: INK }}>{w.max}°</div></>) : <div className="text-[10px] py-1.5" style={{ color: "#B0A483" }}>…</div>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+            )}
+          </>
+        )}
       </div>
 
       {next3.length > 0 && (
@@ -2235,7 +2307,7 @@ export default function JapanTripApp() {
   const TABS = [
     { id: "home", label: "בית", Icon: Home },
     { id: "calendar", label: "לו״ז", Icon: CalendarDays },
-    { id: "logistics", label: "טיסה ומלון", Icon: Plane },
+    { id: "logistics", label: "טיסה/מלון", Icon: Plane },
     { id: "weather", label: "מזג", Icon: Cloud },
     { id: "budget", label: "תקציב", Icon: Wallet },
     { id: "recommend", label: "לאן", Icon: Compass },
