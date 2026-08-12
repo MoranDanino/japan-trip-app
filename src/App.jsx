@@ -1927,22 +1927,257 @@ function InfoTab({ data, setData, merged, excelStatus, onRefreshExcel }) {
 /* ------------------------------------------------------------------ */
 
 const RECOMMEND_KINDS = [
-  { id: "attraction", label: "אטרקציה", query: "אטרקציות מומלצות" },
-  { id: "food", label: "אוכל", query: "מסעדות מומלצות" },
-  { id: "cafe", label: "קפה", query: "בתי קפה מומלצים" },
-  { id: "bar", label: "בר / חיי לילה", query: "בארים מומלצים" },
-  { id: "shopping", label: "קניות", query: "קניות מומלץ" },
-  { id: "nature", label: "טבע / נוף", query: "נוף וטבע מומלץ" },
-  { id: "convenience", label: "בית מרקחת / קונביניינס", query: "בית מרקחת או חנות נוחות קרובה" },
-  { id: "transit", label: "תחנה קרובה", query: "תחנת רכבת או אוטובוס קרובה" },
+  { id: "attraction", label: "אטרקציה", emoji: "⛩️" },
+  { id: "food", label: "אוכל", emoji: "🍜" },
+  { id: "cafe", label: "קפה", emoji: "☕" },
+  { id: "sweet", label: "מתוק / קינוח", emoji: "🍡" },
+  { id: "shopping", label: "קניות", emoji: "🛍️" },
+  { id: "nature", label: "טבע / נוף", emoji: "🌿" },
+  { id: "bar", label: "בר / ערב", emoji: "🍸" },
 ];
+
+const TIME_SLOTS = [
+  { id: "any", label: "כל היום" },
+  { id: "morning", label: "בוקר" },
+  { id: "afternoon", label: "צהריים" },
+  { id: "evening", label: "ערב" },
+];
+
+/* Curated, real, well-known places per city (keyed by weatherCity).
+   R(name, area, note, slots?) — slots omitted = suitable any time.
+   Each opens in Google Maps via a name search so the user can decide. */
+const R = (name, area, note, slots) => ({ name, area, note, slots: slots || null });
+const CURATED = {
+  tokyo: {
+    cafe: [
+      R("Fuglen Tokyo", "טומיגאיה", "קפה נורווגי ביום, קוקטיילים בערב — אווירה וינטג׳"),
+      R("Koffee Mameya", "אומוטסאנדו", "מקדש קפה ספיישלטי, בחירה מוקפדת", ["morning", "afternoon"]),
+      R("About Life Coffee Brewers", "שיבויה", "בר אספרסו זעיר לעמידה, מושלם לבוקר", ["morning", "afternoon"]),
+      R("Blue Bottle Coffee Shinjuku", "שינג׳וקו", "רשת ספיישלטי אמינה ליד התחנה"),
+    ],
+    food: [
+      R("Ichiran Ramen Shibuya", "שיבויה", "טונקוצו ראמן בתאים אישיים — קלאסיקה"),
+      R("Afuri Ebisu", "אביסו", "ראמן יוזו קליל ומרענן"),
+      R("Gyukatsu Motomura", "שיבויה", "שניצל בקר שאתם צולים על אבן לוהטת", ["afternoon", "evening"]),
+      R("Sushi Zanmai Tsukiji", "צוקיג׳י", "סושי טרי, פתוח שעות ארוכות"),
+    ],
+    sweet: [
+      R("Gindaco Takoyaki", "כל העיר", "כדורי טאקויאקי חמים — חטיף חובה"),
+      R("Mister Donut", "כל העיר", "רשת דונאטס יפנית אהובה וזולה"),
+    ],
+    attraction: [
+      R("Senso-ji Temple", "אסאקוסה", "המקדש העתיק בטוקיו + רחוב נאקאמיסה", ["morning", "afternoon"]),
+      R("teamLab Planets", "טויוסו", "מוזיאון אמנות דיגיטלי סוחף — כרטיס מראש"),
+      R("Shibuya Sky", "שיבויה", "תצפית גג מרהיבה, מומלץ לשקיעה", ["afternoon", "evening"]),
+      R("Meiji Jingu", "הרג׳וקו", "מקדש שקט ביער בלב העיר", ["morning", "afternoon"]),
+    ],
+    shopping: [
+      R("Shibuya PARCO", "שיבויה", "אופנה, נינטנדו/פוקימון סטור, גג נחמד"),
+      R("Don Quijote", "כל העיר", "הכול-בכול יפני, פתוח עד מאוחר"),
+      R("Nakamise Street", "אסאקוסה", "מזכרות ואוכל רחוב לפני סנסו-ג׳י", ["morning", "afternoon"]),
+    ],
+    nature: [
+      R("Shinjuku Gyoen", "שינג׳וקו", "גן ענק ורגוע — כניסה בתשלום קטן", ["morning", "afternoon"]),
+      R("Ueno Park", "אואנו", "פארק, מוזיאונים ובריכת לוטוס", ["morning", "afternoon"]),
+    ],
+    bar: [
+      R("Golden Gai", "שינג׳וקו", "סמטאות עם עשרות ברים זעירים", ["evening"]),
+      R("New York Bar (Park Hyatt)", "שינג׳וקו", "בר תצפית מיתולוגי", ["evening"]),
+    ],
+  },
+  osaka: {
+    cafe: [
+      R("LiLo Coffee Roasters", "אמריקה-מורה", "צלייה מקומית, ספיישלטי מצוין", ["morning", "afternoon"]),
+      R("Mel Coffee Roasters", "הונמאצ׳י", "בר קפה קטן ואיכותי", ["morning", "afternoon"]),
+    ],
+    food: [
+      R("Mizuno Okonomiyaki", "דוטומבורי", "אוקונומיאקי מיטב אוסקה — לרוב יש תור", ["afternoon", "evening"]),
+      R("Takoyaki Wanaka", "סנניצ׳ימאה", "טאקויאקי אגדי, אוכל רחוב"),
+      R("Kani Doraku", "דוטומבורי", "מסעדת סרטנים עם השלט המפורסם"),
+      R("Ichiran Dotonbori", "דוטומבורי", "ראמן טונקוצו קלאסי"),
+    ],
+    sweet: [R("Rikuro's Cheesecake", "נמבה", "עוגת גבינה יפנית אוורירית וחמה")],
+    attraction: [
+      R("Osaka Castle", "צ׳ואו", "טירה מרשימה ופארק סביבה", ["morning", "afternoon"]),
+      R("Dotonbori", "נמבה", "לב הלילה של אוסקה — ניאון וגליקו", ["afternoon", "evening"]),
+      R("Umeda Sky Building", "אומדה", "תצפית 'גן שמיים' מרהיבה", ["afternoon", "evening"]),
+      R("Shinsekai Tsutenkaku", "שינסקאי", "שכונה נוסטלגית עם מגדל טסוטנקאקו"),
+    ],
+    shopping: [
+      R("Shinsaibashi-suji", "שינסאיבאשי", "רחוב קניות מקורה ענק"),
+      R("Kuromon Ichiba Market", "ניפומבאשי", "שוק אוכל תוסס", ["morning", "afternoon"]),
+    ],
+    nature: [R("Osaka Castle Park", "צ׳ואו", "פארק נעים סביב הטירה", ["morning", "afternoon"])],
+    bar: [R("Ura-Namba", "נמבה", "אזור סמטאות עם ברים קטנים ואוכל", ["evening"])],
+  },
+  kyoto: {
+    cafe: [
+      R("% Arabica Kyoto Higashiyama", "היגאשיאמה", "לאטה מפורסם עם נוף — לרוב תור", ["morning", "afternoon"]),
+      R("Weekenders Coffee", "טומינוקוג׳י", "בר קפה נסתר בחצר יפנית", ["morning", "afternoon"]),
+      R("Kurasu Kyoto", "ליד התחנה", "ספיישלטי אמין ליד תחנת קיוטו", ["morning", "afternoon"]),
+    ],
+    food: [
+      R("Nishiki Market", "מרכז", "'מטבח קיוטו' — דוכני אוכל רבים", ["morning", "afternoon"]),
+      R("Kyoto Gogyo", "מרכז", "ראמן מיסו 'שרוף' ייחודי"),
+      R("Omen Ginkakuji", "ליד גינקקוג׳י", "אודון ביתי מעולה"),
+    ],
+    sweet: [
+      R("Malebranche", "מרכז", "עוגיות מאצ׳ה מפורסמות"),
+      R("% Arabica", "היגאשיאמה", "גם קפה מתוק וגלידה"),
+    ],
+    attraction: [
+      R("Fushimi Inari Taisha", "פושימי", "אלפי שערי טורי כתומים — לכו מוקדם", ["morning"]),
+      R("Kinkaku-ji", "צפון-מערב", "מקדש הזהב על האגם", ["morning", "afternoon"]),
+      R("Arashiyama Bamboo Grove", "אראשיאמה", "חורשת הבמבוק — הכי יפה בבוקר", ["morning"]),
+      R("Kiyomizu-dera", "היגאשיאמה", "מקדש עם מרפסת ונוף לעיר"),
+    ],
+    shopping: [
+      R("Nishiki Market", "מרכז", "אוכל ומזכרות"),
+      R("Teramachi Street", "מרכז", "רחוב קניות מקורה"),
+    ],
+    nature: [
+      R("Arashiyama Togetsukyo", "אראשיאמה", "נהר, גשר וטבע", ["morning", "afternoon"]),
+      R("Philosopher's Path", "היגאשיאמה", "שביל רגוע לאורך תעלה", ["morning", "afternoon"]),
+    ],
+    bar: [R("Pontocho Alley", "פונטוצ׳ו", "סמטה אטמוספרית עם ברים לצד הנהר", ["evening"])],
+  },
+  seoul: {
+    cafe: [
+      R("Onion Anguk", "אנגוק", "בית קפה בהאנוק מסורתי — יפהפה", ["morning", "afternoon"]),
+      R("Anthracite Coffee", "הפג׳ונג", "בית קפה במפעל נעליים ישן", ["morning", "afternoon"]),
+      R("Fritz Coffee Company", "מאפו", "רשת ספיישלטי אהובה", ["morning", "afternoon"]),
+    ],
+    food: [
+      R("Gwangjang Market", "ג׳ונגנו", "שוק אוכל רחוב אגדי — בינדאטוק", ["morning", "afternoon"]),
+      R("Myeongdong Kyoja", "מיונגדונג", "קאלגוקסו ומאנדו מפורסמים"),
+      R("Tosokchon Samgyetang", "ג׳ונגנו", "מרק עוף ג׳ינסנג מסורתי"),
+    ],
+    sweet: [R("Sulbing", "כל העיר", "בינגסו — קרח מגולח קוריאני קלאסי")],
+    attraction: [
+      R("Gyeongbokgung Palace", "ג׳ונגנו", "הארמון המרכזי — חילוף משמרות", ["morning", "afternoon"]),
+      R("Bukchon Hanok Village", "ג׳ונגנו", "שכונת בתים מסורתיים ציורית", ["morning", "afternoon"]),
+      R("N Seoul Tower", "נמסאן", "תצפית על העיר, יפה בשקיעה", ["afternoon", "evening"]),
+      R("Myeongdong", "ז׳ונג-גו", "אוכל רחוב וקוסמטיקה", ["afternoon", "evening"]),
+    ],
+    shopping: [
+      R("Myeongdong", "ז׳ונג-גו", "קוסמטיקה ואופנה"),
+      R("Hongdae", "מאפו", "אזור צעיר, חנויות ומוזיקה", ["afternoon", "evening"]),
+    ],
+    nature: [R("Han River Yeouido Park", "יאוידו", "פארק נהר להליכה ופיקניק", ["morning", "afternoon"])],
+    bar: [R("Euljiro Nogari Alley", "אולג׳ירו", "סמטאות בירה היפ ואותנטי", ["evening"])],
+  },
+  kobe: {
+    cafe: [R("Nishimura Coffee", "קיטאנו", "בית קפה ותיק ומכובד של קובה")],
+    food: [
+      R("Steakland Kobe", "סאנומיה", "בקר קובה משתלם על טפאניאקי", ["afternoon", "evening"]),
+      R("Kobe Beef Steak Ishida", "סאנומיה", "חוויית בקר קובה איכותית", ["afternoon", "evening"]),
+    ],
+    sweet: [R("Kobe Fugetsudo", "מרכז", "גופרות (baumkuchen) מסורתיות")],
+    attraction: [
+      R("Kitano Ijinkan", "קיטאנו", "בתי סוחרים מערביים היסטוריים", ["morning", "afternoon"]),
+      R("Kobe Harborland Mosaic", "נמל", "טיילת, גלגל ענק ונוף לנמל", ["afternoon", "evening"]),
+      R("Nunobiki Herb Garden", "רכבל", "גן מרפא עם רכבל ותצפית"),
+    ],
+    nature: [
+      R("Nunobiki Falls", "מעל התחנה", "מפלים יפים בטווח הליכה מהתחנה", ["morning", "afternoon"]),
+      R("Mount Rokko", "רוקו", "תצפית לילה מפורסמת על המפרץ", ["afternoon", "evening"]),
+    ],
+    shopping: [R("Sannomiya Center Gai", "סאנומיה", "רחוב קניות מקורה מרכזי")],
+    bar: [],
+  },
+  kanazawa: {
+    cafe: [R("Curio Espresso", "מרכז", "בית קפה בסגנון סיאטל", ["morning", "afternoon"])],
+    food: [
+      R("Omicho Market", "אומיצ׳ו", "שוק פירות ים טרי — קאיסן-דון", ["morning", "afternoon"]),
+      R("Maimon Sushi", "קנזאווה", "סושי מקומי מצוין"),
+    ],
+    sweet: [R("Hakuza Gold Leaf", "היגאשי צ׳איה", "גלידה מצופה עלי זהב — ייחודי לקנזאווה")],
+    attraction: [
+      R("Kenrokuen Garden", "מרכז", "אחד משלושת הגנים היפים ביפן", ["morning", "afternoon"]),
+      R("Higashi Chaya District", "היגאשי", "רובע גיישות עתיק ומשומר", ["morning", "afternoon"]),
+      R("21st Century Museum", "מרכז", "מוזיאון אמנות עכשווית"),
+      R("Kanazawa Castle", "מרכז", "טירה ופארק לצד קנרוקואן", ["morning", "afternoon"]),
+    ],
+    shopping: [R("Omicho Market", "אומיצ׳ו", "שוק אוכל ומזכרות", ["morning", "afternoon"])],
+    nature: [R("Kenrokuen Garden", "מרכז", "גן נוף מטופח", ["morning", "afternoon"])],
+    bar: [],
+  },
+  takayama: {
+    cafe: [R("Falo Coffee & Beer", "עיר עתיקה", "קפה ובירה מקומית ברחוב העתיק")],
+    food: [
+      R("Center4 Hamburgers", "עיר עתיקה", "המבורגר בקר הידה מעולה", ["afternoon", "evening"]),
+      R("Kyoya", "עיר עתיקה", "הידה-ביף עם מיסו על עלה הובה"),
+    ],
+    sweet: [R("Miyagawa Morning Market", "לצד הנהר", "טעימות וחטיפים בשוק הבוקר", ["morning"])],
+    attraction: [
+      R("Sanmachi Suji Old Town", "מרכז", "רחובות עץ משומרים מתקופת אדו", ["morning", "afternoon"]),
+      R("Hida Folk Village", "הידה נו סאטו", "כפר-מוזיאון של בתי גאשו", ["morning", "afternoon"]),
+      R("Miyagawa Morning Market", "לצד הנהר", "שוק בוקר מקומי", ["morning"]),
+    ],
+    shopping: [R("Sanmachi Suji", "מרכז", "סאקה, מלאכת יד ומזכרות")],
+    nature: [R("Higashiyama Walking Course", "מזרח", "שביל מקדשים שקט", ["morning", "afternoon"])],
+    bar: [],
+  },
+  shirakawago: {
+    cafe: [R("Ochudo Cafe", "אוגימאצ׳י", "קפה ומאפה עם נוף לכפר")],
+    food: [R("Irori", "אוגימאצ׳י", "סובה ומנות מקומיות ליד אח מסורתי")],
+    sweet: [],
+    attraction: [
+      R("Ogimachi Gassho Village", "מרכז", "כפר בתי הגאשו-זוקורי (אונסקו)", ["morning", "afternoon"]),
+      R("Shiroyama Viewpoint", "צפון הכפר", "תצפית על כל הכפר מלמעלה", ["morning", "afternoon"]),
+      R("Wada House", "אוגימאצ׳י", "בית גאשו היסטורי לביקור", ["morning", "afternoon"]),
+    ],
+    shopping: [],
+    nature: [R("Shiroyama Viewpoint", "צפון הכפר", "נוף כפרי מרהיב", ["morning", "afternoon"])],
+    bar: [],
+  },
+  kawaguchiko: {
+    cafe: [R("Lake Bake", "צפון האגם", "מאפייה-קפה עם נוף לאגם ולפוג׳י", ["morning", "afternoon"])],
+    food: [R("Hoto Fudo", "קוואגוצ׳יקו", "'הוטו' — נודלס במרק מיסו, מנה מקומית")],
+    sweet: [R("FUJIYAMA Cookie", "ליד האגם", "עוגיות בצורת פוג׳י")],
+    attraction: [
+      R("Chureito Pagoda", "ארקורה סנגן", "הפגודה עם פוג׳י ברקע — הצילום הקלאסי", ["morning", "afternoon"]),
+      R("Oishi Park", "צפון האגם", "נוף פוג׳י מעבר לאגם + פרחים", ["morning", "afternoon"]),
+      R("Kachi Kachi Ropeway", "מזרח האגם", "רכבל לתצפית על פוג׳י והאגם"),
+    ],
+    shopping: [],
+    nature: [
+      R("Lake Kawaguchiko", "כל ההיקף", "אגם עם נופי פוג׳י — השכירו אופניים", ["morning", "afternoon"]),
+      R("Oishi Park", "צפון האגם", "פארק פריחה מול פוג׳י", ["morning", "afternoon"]),
+    ],
+    bar: [],
+  },
+  hakone: {
+    cafe: [R("Bakery & Table Hakone", "אגם אשי", "מאפייה-קפה עם אמבט רגליים ונוף לאגם", ["morning", "afternoon"])],
+    food: [R("Gyoza Center", "גורה", "מגוון גיוזה מקומי אהוב")],
+    sweet: [R("Owakudani Black Egg", "אווקודני", "'ביצה שחורה' מבושלת במעיינות הגופרית", ["morning", "afternoon"])],
+    attraction: [
+      R("Hakone Open-Air Museum", "ניניודאני", "מוזיאון פיסול בחוץ + אגף פיקאסו"),
+      R("Owakudani", "אווקודני", "עמק געשי עם אדים ומעיינות גופרית", ["morning", "afternoon"]),
+      R("Lake Ashi Cruise", "אגם אשי", "שיט על האגם עם נוף לפוג׳י", ["morning", "afternoon"]),
+      R("Hakone Shrine", "אגם אשי", "שער הטורי המפורסם על המים"),
+    ],
+    shopping: [],
+    nature: [
+      R("Lake Ashi", "אגם אשי", "אגם געשי יפהפה", ["morning", "afternoon"]),
+      R("Gora Park", "גורה", "גן צרפתי בהר", ["morning", "afternoon"]),
+    ],
+    bar: [],
+  },
+};
+
+function gmapsSearch(q) { return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`; }
+function currentJpSlot() {
+  try { const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false }).format(new Date())); return h < 11 ? "morning" : h < 17 ? "afternoon" : "evening"; }
+  catch (e) { return "any"; }
+}
 
 function RecommendTab() {
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [locating, setLocating] = useState(false);
   const [locError, setLocError] = useState("");
   const [kind, setKind] = useState("attraction");
-  const [extra, setExtra] = useState("");
+  const [slot, setSlot] = useState(currentJpSlot());
 
   const useMyLocation = () => {
     if (!("geolocation" in navigator)) { setLocError("המכשיר/הדפדפן הזה לא תומך באיתור מיקום — בחרו יעד ידנית למטה."); return; }
@@ -1957,26 +2192,28 @@ function RecommendTab() {
       },
       (err) => {
         setLocating(false);
-        if (err.code === 1) setLocError("ההרשאה למיקום נחסמה בדפדפן. אפשר לאשר אותה בהגדרות האתר (לחיצה על סמל המנעול ליד הכתובת), או פשוט לבחור יעד ידנית למטה.");
-        else if (err.code === 3) setLocError("איתור המיקום לקח יותר מדי זמן. נסו שוב, או בחרו יעד ידנית למטה.");
-        else setLocError("לא הצלחנו לזהות מיקום מדויק כרגע. בחרו יעד ידנית למטה.");
+        if (err.code === 1) setLocError("ההרשאה למיקום נחסמה. אפשר לאשר בהגדרות האתר, או לבחור יעד ידנית למטה.");
+        else if (err.code === 3) setLocError("איתור המיקום לקח יותר מדי זמן. נסו שוב, או בחרו יעד ידנית.");
+        else setLocError("לא הצלחנו לזהות מיקום כרגע. בחרו יעד ידנית למטה.");
       },
       { timeout: 12000, maximumAge: 5 * 60 * 1000 }
     );
   };
 
   const place = selectedPlace ? placeById(selectedPlace) : null;
-  const isKorea = place?.weatherCity === "seoul";
+  const cityKey = place?.weatherCity || null;
+  const cityData = cityKey ? CURATED[cityKey] : null;
   const kindInfo = RECOMMEND_KINDS.find((k) => k.id === kind);
-  const query = `${kindInfo.label} ${extra}`.trim();
-  const searchLink = place ? buildMapsLink(`${query} ${place.label}`, isKorea) : null;
-  const tip = (place && RECOMMEND_TIPS[place.weatherCity]) ? RECOMMEND_TIPS[place.weatherCity][kind] : null;
+
+  const allForKind = (cityData && cityData[kind]) ? cityData[kind] : [];
+  const results = allForKind.filter((r) => slot === "any" || !r.slots || r.slots.includes(slot));
+  const moreQuery = place ? `${kindInfo.label} ${place.label}` : "";
 
   return (
     <div className="px-4 pb-6">
       <SectionTitle eyebrow="בזמן אמת" title="לאן עכשיו?" Icon={Compass} />
       <div className="text-xs leading-relaxed rounded-lg px-3 py-2 mb-4" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>
-        ספרו לי איפה אתם ומה בא לכם — אני אכוון אתכם לחיפוש עדכני וחי באזור, בלי להסתמך על המלצות ישנות שעלולות כבר לא להיות רלוונטיות.
+        יש לכם זמן פנוי? בחרו איפה אתם, מה בא לכם ובאיזה חלק מהיום — ואמליץ על מקומות אמיתיים ואהובים באזור. כל המלצה נפתחת בגוגל מפס כדי שתוכלו להחליט.
       </div>
 
       <button onClick={useMyLocation} disabled={locating} className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-2xl py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: INDIGO }}>
@@ -1992,30 +2229,55 @@ function RecommendTab() {
         ))}
       </div>
 
-      {place && (
+      {!place ? (
+        <div className="text-sm text-center py-8" style={{ color: "#B0A483" }}>בחרו יעד למעלה כדי לקבל המלצות</div>
+      ) : (
         <>
-          <div className="rounded-2xl overflow-hidden mb-4" style={{ background: `linear-gradient(135deg, ${place.grad[0]}, ${place.grad[1]})` }}>
+          <div className="rounded-2xl overflow-hidden mb-3" style={{ background: `linear-gradient(135deg, ${place.grad[0]}, ${place.grad[1]})` }}>
             <div className="px-4 py-3 text-white flex items-center gap-2"><span className="text-2xl">{place.emoji}</span><span className="font-bold">{place.label}</span></div>
           </div>
 
-          <div className="text-[11px] font-medium mb-1.5" style={{ color: "#8A7F63" }}>מה מעניין אתכם?</div>
+          <div className="text-[11px] font-medium mb-1.5" style={{ color: "#8A7F63" }}>מה מתחשק?</div>
           <div className="flex flex-wrap gap-1.5 mb-3">
             {RECOMMEND_KINDS.map((k) => (
-              <button key={k.id} onClick={() => setKind(k.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold border" style={{ backgroundColor: kind === k.id ? VERMILLION : "#fff", color: kind === k.id ? "#fff" : VERMILLION, borderColor: VERMILLION }}>{k.label}</button>
+              <button key={k.id} onClick={() => setKind(k.id)} className="rounded-full px-3 py-1.5 text-xs font-semibold border" style={{ backgroundColor: kind === k.id ? VERMILLION : "#fff", color: kind === k.id ? "#fff" : VERMILLION, borderColor: VERMILLION }}>{k.emoji} {k.label}</button>
             ))}
           </div>
-          <input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="פרטים נוספים (לא חובה) — למשל 'למשפחה עם ילדים'" className="w-full rounded-lg px-3 py-2 text-sm border outline-none mb-3" style={{ borderColor: "#E5DAC0" }} />
 
-          {tip && <div className="text-xs leading-relaxed rounded-xl p-3 mb-3" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0", color: "#6B6355" }}>💡 {tip}</div>}
+          <div className="text-[11px] font-medium mb-1.5" style={{ color: "#8A7F63" }}>מתי?</div>
+          <div className="flex gap-1.5 mb-4">
+            {TIME_SLOTS.map((s) => (
+              <button key={s.id} onClick={() => setSlot(s.id)} className="flex-1 rounded-full py-1.5 text-xs font-semibold border" style={{ backgroundColor: slot === s.id ? INDIGO : "#fff", color: slot === s.id ? "#fff" : INDIGO, borderColor: INDIGO }}>{s.label}</button>
+            ))}
+          </div>
 
-          {searchLink && (
-            <a href={searchLink.url} target="_blank" rel="noopener noreferrer" className="w-full inline-flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold text-white" style={{ backgroundColor: INDIGO }}>
-              <MapPin size={16} /> חיפוש חי: {query} ב{place.label} <ExternalLink size={13} />
-            </a>
+          {results.length > 0 ? (
+            <div className="space-y-2.5 mb-4">
+              {results.map((r, i) => (
+                <a key={i} href={gmapsSearch(`${r.name} ${place.label}`)} target="_blank" rel="noopener noreferrer" className="block rounded-2xl p-3.5 transition active:scale-[0.99]" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0" }}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-[15px]" style={{ color: INK }}>{r.name}</div>
+                      {r.area && <div className="text-[11px] mt-0.5 inline-flex items-center gap-1" style={{ color: "#8A7F63" }}><MapPin size={11} />{r.area}</div>}
+                      {r.note && <div className="text-xs leading-relaxed mt-1" style={{ color: "#6B6355" }}>{r.note}</div>}
+                    </div>
+                    <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2.5 py-1" style={{ backgroundColor: "#EFE7D4", color: INDIGO }}>מפות <ExternalLink size={11} /></span>
+                  </div>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm rounded-2xl px-3 py-4 mb-4 text-center" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0", color: "#8A7F63" }}>
+              {allForKind.length > 0 ? "אין המלצה ספציפית לשעה הזו — נסו 'כל היום', או חפשו חי בגוגל מפס למטה." : "לקטגוריה הזו עדיין אין המלצה אצורה לעיר הזו — חפשו חי בגוגל מפס למטה."}
+            </div>
           )}
+
+          <a href={gmapsSearch(moreQuery)} target="_blank" rel="noopener noreferrer" className="w-full inline-flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold" style={{ backgroundColor: "#EFE7D4", color: INDIGO }}>
+            <MapPin size={16} /> עוד אפשרויות בגוגל מפס <ExternalLink size={13} />
+          </a>
+          <div className="text-[11px] mt-2 text-center" style={{ color: "#B0A483" }}>ההמלצות נאספו ידנית ממקומות מוכרים ואהובים. שעות פתיחה משתנות — כדאי לאמת בגוגל מפס לפני שיוצאים.</div>
         </>
       )}
-      {!place && <div className="text-sm text-center py-8" style={{ color: "#B0A483" }}>בחרו יעד למעלה כדי לקבל המלצות</div>}
     </div>
   );
 }
@@ -2249,7 +2511,7 @@ function HomeTab({ data, setData, merged, weather, weatherStatus, fx, onOpenDay 
         </div>
       )}
 
-      <div className="mt-5">
+      <div className="mt-5 md:grid md:grid-cols-2 md:gap-4 md:items-start">
         <DualClock />
         <CurrencyConverter fx={fx} />
       </div>
@@ -2332,7 +2594,18 @@ export default function JapanTripApp() {
 
       <OfflineBanner online={online} />
 
-      <div className="max-w-lg mx-auto pb-24">
+      {/* Desktop top navigation (hidden on mobile) */}
+      <nav className="hidden md:block sticky top-0 z-40" style={{ backgroundColor: "rgba(255,255,255,0.92)", backdropFilter: "blur(8px)", borderBottom: "1px solid #E5DAC0" }}>
+        <div className="max-w-3xl mx-auto flex items-center justify-center gap-1 px-3 py-2 flex-wrap">
+          {TABS.map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold transition" style={{ backgroundColor: tab === t.id ? "#EFE7D4" : "transparent", color: tab === t.id ? INDIGO : "#8A7F63" }}>
+              <t.Icon size={16} color={tab === t.id ? VERMILLION : "#B0A483"} /> {t.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <div className="max-w-lg md:max-w-3xl mx-auto pb-24 md:pb-12">
         {tab === "home" && <HomeTab data={data} setData={setData} merged={merged} weather={weather} weatherStatus={weatherStatus} fx={fx} onOpenDay={(k) => { setTab("calendar"); setOpenDay(k); }} />}
         {tab === "calendar" && <CalendarTab merged={merged} onPick={setOpenDay} />}
         {tab === "logistics" && <LogisticsTab data={data} setData={setData} merged={merged} excelStatus={excel.status} />}
@@ -2344,7 +2617,7 @@ export default function JapanTripApp() {
 
       {openDay && <DaySheet dateKey={openDay} data={data} setData={setData} merged={merged} weather={weather} weatherStatus={weatherStatus} onClose={() => setOpenDay(null)} />}
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40">
         <div className="max-w-lg mx-auto grid grid-cols-7 gap-0.5 px-1 py-1.5 rounded-t-3xl" style={{ backgroundColor: "#fff", boxShadow: "0 -4px 20px rgba(0,0,0,0.08)" }}>
           {TABS.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center gap-0.5 py-1.5 rounded-xl transition" style={{ backgroundColor: tab === t.id ? "#EFE7D4" : "transparent" }}>
