@@ -17,7 +17,7 @@
 //  אל תשכחי: בגיליון → Share → "Anyone with the link" → Viewer.
 // ======================================================================
 
-const SHEET_LINK = "https://docs.google.com/spreadsheets/d/13cS0eirqfqx0rfu715QtQf2hBycno9oIRcu33pTFR_Y/edit?gid=909782364#gid=909782364";
+const SHEET_LINK = "https://docs.google.com/spreadsheets/d/1mthzgUHrBSMJzahFBcdPIsHjcbxwl7YX6yiK-9qX6Eo/edit?gid=68265928#gid=68265928";
 
 // ---- מכאן והלאה אין צורך לגעת ----
 function extractId(input) {

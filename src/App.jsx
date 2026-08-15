@@ -268,15 +268,23 @@ const WEEKDAYS_HE = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
 /* ------------------------------------------------------------------ */
 
 function toKey(d) { const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0"); return `${y}-${m}-${day}`; }
-function keyToDate(k) { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); }
+function keyToDate(k) {
+  const s = String(k || "").trim();
+  let mm = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (mm) return new Date(+mm[1], +mm[2] - 1, +mm[3]);
+  mm = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/);      // 05.09.2026 / 5/9/2026
+  if (mm) return new Date(+mm[3], +mm[2] - 1, +mm[1]);
+  return new Date(NaN);
+}
 function addDays(k, n) { const d = keyToDate(k); d.setDate(d.getDate() + n); return toKey(d); }
 function dayDiff(aKey, bKey) { return Math.round((keyToDate(bKey) - keyToDate(aKey)) / 86400000); }
-function formatHeDate(k) { return keyToDate(k).toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" }); }
-function formatHeShort(k) { return keyToDate(k).toLocaleDateString("he-IL", { day: "numeric", month: "short" }); }
-function formatHeWeekdayShort(k) { return keyToDate(k).toLocaleDateString("he-IL", { weekday: "short" }); }
+function formatHeDate(k) { const dt = keyToDate(k); return isNaN(dt) ? "" : dt.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" }); }
+function formatHeShort(k) { const dt = keyToDate(k); return isNaN(dt) ? "" : dt.toLocaleDateString("he-IL", { day: "numeric", month: "short" }); }
+function formatHeWeekdayShort(k) { const dt = keyToDate(k); return isNaN(dt) ? "" : dt.toLocaleDateString("he-IL", { weekday: "short" }); }
 function todayKey() { return toKey(new Date()); }
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
 function slug(s) { return String(s || "").trim().replace(/\s+/g, "-").replace(/[^\w\-א-ת]/g, ""); }
+function isHttpUrl(s) { const t = String(s || "").trim().toLowerCase(); return t.startsWith("http://") || t.startsWith("https://"); }
 function encodeSyncCode(obj) {
   const json = JSON.stringify(obj);
   const utf8 = new TextEncoder().encode(json);
@@ -431,7 +439,7 @@ function parseHotelStay(s) {
 }
 
 function useExcelData() {
-  const [state, setState] = useState({ status: "loading", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [], source: "local" });
+  const [state, setState] = useState({ status: "loading", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [], restaurantRows: [], attractionRows: [], source: "local" });
 
   const load = useCallback(async () => {
     setState((s) => ({ ...s, status: "loading" }));
@@ -561,9 +569,49 @@ function useExcelData() {
         });
       }
 
-      setState({ status: "ready", itinByDate, cityByDate, budgetRows, packingItems, flightRows, hotelRows, source });
+      // Sheet: מסעדות (booked food places → into the day timeline by date+time)
+      const restaurantRows = [];
+      const resSheet = wb.Sheets["מסעדות"];
+      if (resSheet) {
+        XLSX.utils.sheet_to_json(resSheet, { defval: "", raw: false }).forEach((row) => {
+          const name = String(row["שם"] || "").trim();
+          const notes = String(row["הערות"] || "").trim();
+          if (!name || notes.includes("דוגמה בלבד")) return;
+          const date = toISODate(String(row["תאריך"] || "").trim());
+          restaurantRows.push({
+            id: `xlsxr-${slug(name)}-${slug(date)}`,
+            name, subcat: String(row["קטגוריה"] || "").trim(), city: String(row["עיר"] || "").trim(),
+            date, time: String(row["שעה"] || "").trim(),
+            bookingLink: String(row["קישור לאישור הזמנה"] || "").trim(),
+            mapsLink: String(row["קישור Google Maps"] || "").trim(),
+            notes, source: "excel",
+          });
+        });
+      }
+
+      // Sheet: אטרקציות (booked attractions → into the day timeline by date+time)
+      const attractionRows = [];
+      const attSheet = wb.Sheets["אטרקציות"];
+      if (attSheet) {
+        XLSX.utils.sheet_to_json(attSheet, { defval: "", raw: false }).forEach((row) => {
+          const name = String(row["שם"] || "").trim();
+          const notes = String(row["הערות"] || "").trim();
+          if (!name || notes.includes("דוגמה בלבד")) return;
+          const date = toISODate(String(row["תאריך"] || "").trim());
+          attractionRows.push({
+            id: `xlsxa-${slug(name)}-${slug(date)}`,
+            name, city: String(row["עיר"] || "").trim(),
+            date, time: String(row["שעה"] || "").trim(),
+            ticketLink: String(row["קישור לכרטיסים"] || "").trim(),
+            mapsLink: String(row["קישור Google Maps"] || "").trim(),
+            notes, source: "excel",
+          });
+        });
+      }
+
+      setState({ status: "ready", itinByDate, cityByDate, budgetRows, packingItems, flightRows, hotelRows, restaurantRows, attractionRows, source });
     } catch (e) {
-      setState({ status: "none", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [], source: "local" });
+      setState({ status: "none", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [], restaurantRows: [], attractionRows: [], source: "local" });
     }
   }, []);
 
@@ -750,7 +798,24 @@ function useMergedTrip(data, excel) {
     allDates.forEach((date) => {
       const excelItems = (excel.itinByDate[date] || []).map((i) => ({ ...i, visited: !!data.visitedOverrides[i.id] }));
       const localItems = (data.itinerary[date] || []).map((i) => ({ ...i, source: "local" }));
-      itemsByDate[date] = [...excelItems, ...localItems].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+      itemsByDate[date] = [...excelItems, ...localItems];
+    });
+
+    // Booked restaurants & attractions → timeline items on their date, placed by time
+    const pushItem = (date, it) => { if (!date) return; (itemsByDate[date] = itemsByDate[date] || []).push(it); };
+    (excel.restaurantRows || []).forEach((r) => pushItem(r.date, {
+      id: r.id, name: r.name, time: r.time, category: "restaurant", subcat: r.subcat,
+      place: r.mapsLink || r.city, notes: r.notes, source: "excel",
+      link: r.bookingLink, linkLabel: "אישור הזמנה", visited: !!data.visitedOverrides[r.id],
+    }));
+    (excel.attractionRows || []).forEach((a) => pushItem(a.date, {
+      id: a.id, name: a.name, time: a.time, category: "attraction",
+      place: a.mapsLink || a.city, notes: a.notes, source: "excel",
+      link: a.ticketLink, linkLabel: "כרטיסים", visited: !!data.visitedOverrides[a.id],
+    }));
+
+    Object.keys(itemsByDate).forEach((date) => {
+      itemsByDate[date].sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
     });
     const cityForDate = (date) => data.dayCities[date] || excel.cityByDate[date] || null;
 
@@ -774,12 +839,25 @@ function useMergedTrip(data, excel) {
       ...(data.flights || []).map((f) => ({ ...f, source: "local" })),
     ].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || (a.time || "99").localeCompare(b.time || "99"));
 
+    const withCheckout = (h) => {
+      let checkOut = h.checkOut;
+      if (!checkOut && h.checkIn) { const n = Number(h.nights); checkOut = addDays(h.checkIn, n > 0 ? n : 1); }
+      return { ...h, checkOut };
+    };
     const hotels = [
-      ...excel.hotelRows,
-      ...(data.hotels || []).map((h) => ({ ...h, source: "local" })),
+      ...excel.hotelRows.map(withCheckout),
+      ...(data.hotels || []).map((h) => withCheckout({ ...h, source: "local" })),
     ].sort((a, b) => (a.checkIn || "9999").localeCompare(b.checkIn || "9999"));
 
-    return { itemsByDate, cityForDate, packingList, budgetEntries, flights, hotels };
+    // לו״ז integration helpers
+    const lastCheckout = hotels.reduce((mx, h) => (h.checkOut && h.checkOut > mx ? h.checkOut : mx), "");
+    // המלון של הלילה = זה שבו מבצעים צ'ק-אין באותו יום, או שבו לנים באותו לילה (checkIn ≤ date < checkOut)
+    const hotelForNight = (date) => hotels.find((h) => h.checkIn && h.checkOut && h.checkIn <= date && date < h.checkOut) || null;
+    const flightsForDate = (date) => flights.filter((f) => f.date === date);
+    // יום חזרה: יש טיסה, אין מלון לאותו לילה, וזה בסוף הטיול → "בית"
+    const isHomeDay = (date) => flightsForDate(date).length > 0 && !hotelForNight(date) && (!lastCheckout || date >= lastCheckout);
+
+    return { itemsByDate, cityForDate, packingList, budgetEntries, flights, hotels, hotelForNight, flightsForDate, isHomeDay, lastCheckout };
   }, [data, excel]);
 }
 
@@ -1041,6 +1119,8 @@ function TimelineItem({ item, isFirst, isLast, isKorea, docLink, onSaveDocLink, 
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   {item.time && <span className="inline-flex items-center gap-1 text-xs font-bold" style={{ color: INDIGO }}><Clock size={12} />{item.time}</span>}
                   <CategoryChip cat={cat} small />
+                  {item.subcat && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>{item.subcat}</span>}
+                  {item.link && <a href={item.link} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#EAF2F6", color: "#2E86AB" }}>{item.linkLabel || "קישור"} <ExternalLink size={10} /></a>}
                   {isLocal && <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#FDEDE9", color: VERMILLION }}><Lock size={9} /> מקומי אצלי בלבד</span>}
                 </div>
                 <div className="font-bold text-[15px] flex items-center gap-1.5" style={{ color: INK, fontFamily: "'Heebo', sans-serif" }}>
@@ -1112,6 +1192,18 @@ function DaySheet({ dateKey, data, setData, merged, weather, weatherStatus, onCl
   const [editingItem, setEditingItem] = useState(null);
   const items = merged.itemsByDate[dateKey] || [];
   const placeId = merged.cityForDate(dateKey);
+  const dayFlights = merged.flightsForDate(dateKey);
+  const dayHotel = merged.hotelForNight(dateKey);
+  const homeDay = merged.isHomeDay(dateKey);
+  let hotelMapsHref = "";
+  if (dayHotel) {
+    if (isHttpUrl(dayHotel.mapsLink)) {
+      hotelMapsHref = dayHotel.mapsLink;
+    } else {
+      const q = dayHotel.mapsLink || (dayHotel.name + " " + (dayHotel.location || ""));
+      hotelMapsHref = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+    }
+  }
   const note = data.dayNotes[dateKey] || "";
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState(note);
@@ -1171,6 +1263,17 @@ function DaySheet({ dateKey, data, setData, merged, weather, weatherStatus, onCl
 
           <h4 className="font-bold text-sm mt-4 mb-2" style={{ color: INK }}>הטיימליין ({items.length})</h4>
 
+          {dayFlights.map((f) => (
+            <div key={f.id} className="rounded-2xl p-3 mb-2 flex items-center gap-2.5" style={{ backgroundColor: "#EAF2F6", border: "1px solid #C7DCE5" }}>
+              <PlaneTakeoff size={18} color="#2E86AB" className="shrink-0" />
+              <div className="min-w-0">
+                <div className="text-sm font-bold" style={{ color: "#2E86AB" }}>טיסה{f.time ? ` · ${f.time}` : ""}</div>
+                <div className="text-xs" style={{ color: "#6B6355" }}>{[f.fromAirport, f.toAirport].filter(Boolean).join(" → ")}{(f.airline || f.flightNo) ? ` · ${[f.airline, f.flightNo].filter(Boolean).join(" ")}` : ""}</div>
+              </div>
+              {f.ticketLink && <a href={f.ticketLink} target="_blank" rel="noopener noreferrer" className="mr-auto shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2.5 py-1" style={{ backgroundColor: "#fff", color: "#2E86AB" }}>כרטיסים <ExternalLink size={11} /></a>}
+            </div>
+          ))}
+
           {items.length === 0 && (
             <div className="text-sm text-center py-6 rounded-2xl mb-3" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>
               עוד לא נוסף כלום ליום הזה. הוסיפו פריט למטה — הוא ישתלב אוטומטית לפי השעה.
@@ -1183,6 +1286,22 @@ function DaySheet({ dateKey, data, setData, merged, weather, weatherStatus, onCl
               onSaveDocLink={(itemId, url) => setData((d) => ({ ...d, docLinks: { ...d.docLinks, [itemId]: url } }))}
               onToggleVisited={toggleVisited} onEdit={setEditingItem} onDelete={deleteItem} />
           ))}
+
+          {dayHotel && (
+            <div className="rounded-2xl p-3 mt-2 flex items-center gap-2.5" style={{ backgroundColor: "#F0EAF6", border: "1px solid #D9CBE8" }}>
+              <BedDouble size={18} color="#6B4F8A" className="shrink-0" />
+              <div className="min-w-0">
+                <div className="text-sm font-bold" style={{ color: "#6B4F8A" }}>לינה · {dayHotel.name}</div>
+                <div className="text-xs" style={{ color: "#6B6355" }}>{dayHotel.location}{dayHotel.checkIn === dateKey ? " · צ׳ק-אין היום" : ""}</div>
+              </div>
+              {(dayHotel.mapsLink || dayHotel.location) && <a href={hotelMapsHref} target="_blank" rel="noopener noreferrer" className="mr-auto shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2.5 py-1" style={{ backgroundColor: "#fff", color: "#6B4F8A" }}>מפות <ExternalLink size={11} /></a>}
+            </div>
+          )}
+          {homeDay && (
+            <div className="rounded-2xl p-3 mt-2 flex items-center justify-center gap-2" style={{ backgroundColor: "#EAF6F2", border: "1px solid #C7E5DC" }}>
+              <Home size={18} color="#3E8E7E" /><span className="text-sm font-bold" style={{ color: "#3E8E7E" }}>חוזרים הביתה 🏠</span>
+            </div>
+          )}
 
           <div className="mt-2 pt-3 border-t-2 border-dashed" style={{ borderColor: "#E5DAC0" }}>
             {!adding && !editingItem && (
@@ -1571,7 +1690,13 @@ function LogisticsTab({ data, setData, merged, excelStatus }) {
   const [editing, setEditing] = useState(null);
   const isFlights = view === "flights";
 
-  const list = isFlights ? merged.flights : merged.hotels;
+  const rawList = isFlights ? merged.flights : merged.hotels;
+  const todayK = todayKey();
+  const isPast = (item) => isFlights ? (item.date && item.date < todayK) : (item.checkOut && item.checkOut <= todayK);
+  const doneLog = data.doneLog || {};
+  const isDone = (item) => !!doneLog[item.id] || isPast(item);
+  // keep chronological, but sink finished/marked items to the bottom
+  const list = [...rawList].sort((a, b) => (isDone(a) === isDone(b) ? 0 : isDone(a) ? 1 : -1));
 
   const saveFlight = (fl) => {
     setData((d) => { const l = [...(d.flights || [])]; const i = l.findIndex((x) => x.id === fl.id); if (i >= 0) l[i] = fl; else l.push(fl); return { ...d, flights: l }; });
@@ -1584,7 +1709,6 @@ function LogisticsTab({ data, setData, merged, excelStatus }) {
   const removeFlight = (id) => setData((d) => ({ ...d, flights: (d.flights || []).filter((x) => x.id !== id) }));
   const removeHotel = (id) => setData((d) => ({ ...d, hotels: (d.hotels || []).filter((x) => x.id !== id) }));
   const toggleDone = (id) => setData((d) => { const dl = { ...(d.doneLog || {}) }; if (dl[id]) delete dl[id]; else dl[id] = true; return { ...d, doneLog: dl }; });
-  const doneLog = data.doneLog || {};
   const switchView = (v) => { setView(v); setAdding(false); setEditing(null); };
 
   const totalNights = merged.hotels.reduce((s, h) => s + (Number(h.nights) || 0), 0);
@@ -1626,7 +1750,7 @@ function LogisticsTab({ data, setData, merged, excelStatus }) {
               ? <FlightForm key={item.id} initial={item} onSave={saveFlight} onCancel={() => setEditing(null)} />
               : <HotelForm key={item.id} initial={item} onSave={saveHotel} onCancel={() => setEditing(null)} />;
           }
-          return <LogiCard key={item.id} item={item} kind={isFlights ? "flight" : "hotel"} done={!!doneLog[item.id]}
+          return <LogiCard key={item.id} item={item} kind={isFlights ? "flight" : "hotel"} done={isDone(item)}
             onEdit={() => setEditing(item.id)} onRemove={() => (isFlights ? removeFlight(item.id) : removeHotel(item.id))}
             onToggleDone={() => toggleDone(item.id)} />;
         })}
