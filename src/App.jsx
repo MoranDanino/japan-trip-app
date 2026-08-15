@@ -339,6 +339,7 @@ const DEFAULT_DATA = {
   budgetEntries: [],      // [{id, category, place, label, amount, currency}]
   hotels: [],             // [{id, name, location, mapsLink, checkIn, nights, paid, price, currency, notes}]
   flights: [],            // [{id, airline, flightNo, date, time, fromAirport, toAirport, ticketLink, paid, notes}]
+  doneLog: {},            // { [flightOrHotelId]: true } — "כבר היינו/עברנו" סימון מקומי
 };
 
 function useTripData() {
@@ -401,6 +402,33 @@ const DRIVE_SYNC = {
   enabled: true,                                 // מנסה קודם למשוך מ-Drive; אם לא מוגדר/נכשל — נטען הקובץ המקומי
   functionUrl: "/.netlify/functions/itinerary",  // אין צורך לגעת בזה
 };
+
+/* Accept dates as YYYY-MM-DD or D.M.YYYY / DD.MM.YYYY (also with "/") → ISO YYYY-MM-DD.
+   This is what lets the sheet use the natural "6.9.2026" format and still sort correctly. */
+function toISODate(s) {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+  m = t.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/);
+  if (m) return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+  return "";
+}
+
+/* Hotel stay cell may be a single date OR a range "6.9.2026-10.9.2026"
+   (check-in – check-out). Nights are derived from the range automatically. */
+function parseHotelStay(s) {
+  const t = String(s || "").trim();
+  if (!t) return { checkIn: "", checkOut: "", nights: null };
+  const range = t.match(/^(\d{1,2}[.\/]\d{1,2}[.\/]\d{4})\s*[-–]\s*(\d{1,2}[.\/]\d{1,2}[.\/]\d{4})$/);
+  if (range) {
+    const ci = toISODate(range[1]), co = toISODate(range[2]);
+    let nights = null;
+    if (ci && co) { const d = Math.round((new Date(co + "T00:00:00") - new Date(ci + "T00:00:00")) / 86400000); if (d > 0) nights = d; }
+    return { checkIn: ci, checkOut: co, nights };
+  }
+  return { checkIn: toISODate(t), checkOut: "", nights: null };
+}
 
 function useExcelData() {
   const [state, setState] = useState({ status: "loading", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [], source: "local" });
@@ -490,7 +518,7 @@ function useExcelData() {
           if (notes.includes("דוגמה בלבד")) return;
           const fromAirport = String(row["שדה מוצא"] || "").trim();
           const toAirport = String(row["שדה יעד"] || "").trim();
-          const date = String(row["תאריך (YYYY-MM-DD)"] || row["תאריך"] || "").trim();
+          const date = toISODate(String(row["תאריך"] || row["תאריך (למשל 6.9.2026)"] || row["תאריך (YYYY-MM-DD)"] || "").trim());
           if (!fromAirport && !toAirport && !date) return;
           flightRows.push({
             id: `xlsxf-${slug(date)}-${slug(fromAirport)}-${slug(toAirport)}-${slug(String(row["שעה (HH:MM)"] || ""))}`,
@@ -513,12 +541,16 @@ function useExcelData() {
           const name = String(row["שם המלון"] || "").trim();
           const notes = String(row["הערות"] || "").trim();
           if (!name || notes.includes("דוגמה בלבד")) return;
+          const stayCell = String(row["תאריכי שהייה"] || row["תאריכי שהייה (6.9.2026-10.9.2026)"] || row["תאריך צ׳ק-אין (YYYY-MM-DD)"] || row["תאריך צ׳ק-אין"] || "").trim();
+          const stay = parseHotelStay(stayCell);
+          const nightsCol = String(row["מספר לילות (רשות)"] || row["מספר לילות"] || "").trim();
           hotelRows.push({
-            id: `xlsxh-${slug(name)}-${slug(String(row["תאריך צ׳ק-אין (YYYY-MM-DD)"] || ""))}`,
+            id: `xlsxh-${slug(name)}-${slug(stay.checkIn)}`,
             name,
             location: String(row["עיר / אזור"] || row["עיר"] || "").trim(),
-            checkIn: String(row["תאריך צ׳ק-אין (YYYY-MM-DD)"] || row["תאריך צ׳ק-אין"] || "").trim(),
-            nights: String(row["מספר לילות"] || "").trim(),
+            checkIn: stay.checkIn,
+            checkOut: stay.checkOut,
+            nights: stay.nights != null ? String(stay.nights) : nightsCol,
             mapsLink: String(row["קישור Google Maps"] || "").trim(),
             docLink: String(row["קישור לאישור הזמנה / מסמך"] || row["קישור לאישור הזמנה"] || "").trim(),
             price: String(row["מחיר"] || "").trim(),
@@ -1472,12 +1504,12 @@ function HotelForm({ initial, onSave, onCancel }) {
   );
 }
 
-function LogiCard({ item, kind, onEdit, onRemove }) {
+function LogiCard({ item, kind, done, onEdit, onRemove, onToggleDone }) {
   const isLocal = item.source === "local";
   const isFlight = kind === "flight";
   const route = isFlight ? [item.fromAirport, item.toAirport].filter(Boolean).join(" ← ") : null;
   return (
-    <div className="rounded-2xl p-3.5" style={{ backgroundColor: "#fff", border: "1px solid #E5DAC0" }}>
+    <div className="rounded-2xl p-3.5" style={{ backgroundColor: done ? "#F3EFE4" : "#fff", border: "1px solid #E5DAC0", opacity: done ? 0.72 : 1 }}>
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
@@ -1485,11 +1517,12 @@ function LogiCard({ item, kind, onEdit, onRemove }) {
               ? <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: "#EAF2F6", color: "#2E86AB" }}><PlaneTakeoff size={12} /> טיסה</span>
               : <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: "#F0EAF6", color: "#6B4F8A" }}><BedDouble size={12} /> מלון</span>}
             <PaidBadge paid={item.paid} />
+            {done && <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#E7F0E9", color: "#5B8266" }}><CircleCheck size={10} /> היינו</span>}
             {isLocal
               ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#FDEDE9", color: VERMILLION }}><Lock size={9} /> מקומי אצלי בלבד</span>
               : <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#E7F0E9", color: "#5B8266" }}><RefreshCw size={9} /> מסונכרן מהאקסל</span>}
           </div>
-          <div className="font-bold text-[15px]" style={{ color: INK, fontFamily: "'Heebo', sans-serif" }}>{isFlight ? (route || item.airline || "טיסה") : item.name}</div>
+          <div className="font-bold text-[15px]" style={{ color: INK, fontFamily: "'Heebo', sans-serif", textDecoration: done ? "line-through" : "none" }}>{isFlight ? (route || item.airline || "טיסה") : item.name}</div>
           <div className="text-xs mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: "#8A7F63" }}>
             {isFlight ? (
               <>
@@ -1500,8 +1533,8 @@ function LogiCard({ item, kind, onEdit, onRemove }) {
             ) : (
               <>
                 {item.location && <span className="inline-flex items-center gap-1"><MapPin size={11} />{item.location}</span>}
+                {item.checkIn && <span className="inline-flex items-center gap-1"><CalendarDays size={11} />{formatHeShort(item.checkIn)}{item.checkOut ? ` → ${formatHeShort(item.checkOut)}` : ""}</span>}
                 {Number(item.nights) > 0 && <span className="inline-flex items-center gap-1"><Moon size={11} />{item.nights} לילות</span>}
-                {item.checkIn && <span>· צ׳ק-אין {formatHeShort(item.checkIn)}</span>}
               </>
             )}
           </div>
@@ -1515,6 +1548,9 @@ function LogiCard({ item, kind, onEdit, onRemove }) {
       </div>
       {item.notes && <div className="text-xs leading-relaxed mb-1.5" style={{ color: "#6B6355" }}>{item.notes}</div>}
       <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={onToggleDone} className="inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2.5 py-1 border" style={{ backgroundColor: done ? "#5B8266" : "transparent", color: done ? "#fff" : "#5B8266", borderColor: "#5B8266" }}>
+          <CircleCheck size={12} /> {done ? "היינו ✓" : "סמן שהיינו"}
+        </button>
         {isFlight
           ? (item.ticketLink && <LinkButton url={item.ticketLink} icon={Ticket} label="הכרטיסים" color="#2E86AB" />)
           : (
@@ -1547,6 +1583,8 @@ function LogisticsTab({ data, setData, merged, excelStatus }) {
   };
   const removeFlight = (id) => setData((d) => ({ ...d, flights: (d.flights || []).filter((x) => x.id !== id) }));
   const removeHotel = (id) => setData((d) => ({ ...d, hotels: (d.hotels || []).filter((x) => x.id !== id) }));
+  const toggleDone = (id) => setData((d) => { const dl = { ...(d.doneLog || {}) }; if (dl[id]) delete dl[id]; else dl[id] = true; return { ...d, doneLog: dl }; });
+  const doneLog = data.doneLog || {};
   const switchView = (v) => { setView(v); setAdding(false); setEditing(null); };
 
   const totalNights = merged.hotels.reduce((s, h) => s + (Number(h.nights) || 0), 0);
@@ -1588,8 +1626,9 @@ function LogisticsTab({ data, setData, merged, excelStatus }) {
               ? <FlightForm key={item.id} initial={item} onSave={saveFlight} onCancel={() => setEditing(null)} />
               : <HotelForm key={item.id} initial={item} onSave={saveHotel} onCancel={() => setEditing(null)} />;
           }
-          return <LogiCard key={item.id} item={item} kind={isFlights ? "flight" : "hotel"}
-            onEdit={() => setEditing(item.id)} onRemove={() => (isFlights ? removeFlight(item.id) : removeHotel(item.id))} />;
+          return <LogiCard key={item.id} item={item} kind={isFlights ? "flight" : "hotel"} done={!!doneLog[item.id]}
+            onEdit={() => setEditing(item.id)} onRemove={() => (isFlights ? removeFlight(item.id) : removeHotel(item.id))}
+            onToggleDone={() => toggleDone(item.id)} />;
         })}
       </div>
 
