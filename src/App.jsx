@@ -387,15 +387,41 @@ async function fetchWithCache(cacheKey, fetcher) {
 /* Excel sync hook — reads all 3 sheets from one workbook fetch         */
 /* ------------------------------------------------------------------ */
 
+/* ==================================================================
+   סנכרון לו״ז מ-Google Drive
+   ------------------------------------------------------------------
+   מופעל כברירת מחדל. האפליקציה מנסה קודם למשוך את הלו״ז דרך פונקציית
+   Netlify (הקובץ netlify/functions/itinerary.js) — ושם, ורק שם, מדביקים
+   את הקישור לגיליון. אם לא הוגדר או נכשל — נטען הקובץ המקומי
+   /data/itinerary.xlsx, כך ששום דבר לא נשבר.
+
+   כלומר: כדי להפעיל צריך לערוך רק את קובץ הפונקציה — לא את הקובץ הזה.
+   ================================================================== */
+const DRIVE_SYNC = {
+  enabled: true,                                 // מנסה קודם למשוך מ-Drive; אם לא מוגדר/נכשל — נטען הקובץ המקומי
+  functionUrl: "/.netlify/functions/itinerary",  // אין צורך לגעת בזה
+};
+
 function useExcelData() {
-  const [state, setState] = useState({ status: "loading", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [] });
+  const [state, setState] = useState({ status: "loading", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [], source: "local" });
 
   const load = useCallback(async () => {
     setState((s) => ({ ...s, status: "loading" }));
     try {
-      const res = await fetch("/data/itinerary.xlsx", { cache: "no-store" });
-      if (!res.ok) throw new Error("not found");
-      const buf = await res.arrayBuffer();
+      // 1) נסי קודם למשוך מ-Google Drive (דרך פונקציית Netlify), אם הסנכרון מופעל
+      let buf = null, source = "local";
+      if (DRIVE_SYNC.enabled) {
+        try {
+          const r = await fetch(DRIVE_SYNC.functionUrl, { cache: "no-store" });
+          if (r.ok) { buf = await r.arrayBuffer(); source = "drive"; }
+        } catch (e) { /* ניפול חזרה לקובץ המקומי למטה */ }
+      }
+      // 2) נפילה בטוחה לקובץ המקומי שנפרס עם האתר
+      if (!buf) {
+        const res = await fetch("/data/itinerary.xlsx", { cache: "no-store" });
+        if (!res.ok) throw new Error("not found");
+        buf = await res.arrayBuffer();
+      }
       const wb = XLSX.read(buf, { type: "array" });
 
       // Sheet: לוז
@@ -503,9 +529,9 @@ function useExcelData() {
         });
       }
 
-      setState({ status: "ready", itinByDate, cityByDate, budgetRows, packingItems, flightRows, hotelRows });
+      setState({ status: "ready", itinByDate, cityByDate, budgetRows, packingItems, flightRows, hotelRows, source });
     } catch (e) {
-      setState({ status: "none", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [] });
+      setState({ status: "none", itinByDate: {}, cityByDate: {}, budgetRows: [], packingItems: [], flightRows: [], hotelRows: [], source: "local" });
     }
   }, []);
 
@@ -1810,7 +1836,7 @@ function PersonalDataSync({ data, setData }) {
   );
 }
 
-function InfoTab({ data, setData, merged, excelStatus, onRefreshExcel }) {
+function InfoTab({ data, setData, merged, excelStatus, excelSource, onRefreshExcel }) {
   const [newItem, setNewItem] = useState("");
   const togglePack = (item) => setData((d) => ({ ...d, packingChecked: { ...d.packingChecked, [slug(item.label)]: !item.checked } }));
   const addPack = () => { if (!newItem.trim()) return; setData((d) => ({ ...d, packingLocalItems: [...d.packingLocalItems, { id: uid(), label: newItem }] })); setNewItem(""); };
@@ -1871,9 +1897,20 @@ function InfoTab({ data, setData, merged, excelStatus, onRefreshExcel }) {
         <PersonalDataSync data={data} setData={setData} />
       </Collapsible>
 
-      <Collapsible id="sync" title="עדכון הלו״ז מהאקסל" Icon={RefreshCw}>
-        <div className="text-xs leading-relaxed mb-2" style={{ color: "#8A7F63" }}>הלו"ז, התקציב ורשימת האריזה מתעדכנים אוטומטית. אפשר גם להוסיף פרטים אישיים ישירות כאן באפליקציה בכל מקום שמסומן ב-🔒.</div>
-        <button onClick={onRefreshExcel} className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5" style={{ backgroundColor: "#EFE7D4", color: INDIGO }}><RefreshCw size={12} /> רענון עכשיו</button>
+      <Collapsible id="sync" title={DRIVE_SYNC.enabled ? "עדכון הלו״ז מ-Google Drive" : "עדכון הלו״ז מהאקסל"} Icon={RefreshCw}>
+        <div className="text-xs leading-relaxed mb-2" style={{ color: "#8A7F63" }}>
+          {DRIVE_SYNC.enabled
+            ? 'הלו"ז נמשך אוטומטית מ-Google Drive. ערכתם בגיליון? לחצו "עדכן מהדרייב" כדי למשוך את הגרסה האחרונה — בלי גיט ובלי המתנה לבנייה מחדש.'
+            : 'הלו"ז, התקציב ורשימת האריזה מתעדכנים אוטומטית. אפשר גם להוסיף פרטים אישיים ישירות כאן באפליקציה בכל מקום שמסומן ב-🔒.'}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={onRefreshExcel} className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5" style={{ backgroundColor: "#EFE7D4", color: INDIGO }}>
+            <RefreshCw size={12} /> {DRIVE_SYNC.enabled ? "עדכן מהדרייב" : "רענון עכשיו"}
+          </button>
+          {excelStatus === "loading" && <span className="text-[11px]" style={{ color: "#B0A483" }}>טוען…</span>}
+          {excelStatus === "ready" && excelSource === "drive" && <span className="text-[11px] font-semibold inline-flex items-center gap-1" style={{ color: "#5B8266" }}><CircleCheck size={11} /> מסונכרן מ-Drive</span>}
+          {excelStatus === "ready" && excelSource === "local" && DRIVE_SYNC.enabled && <span className="text-[11px]" style={{ color: "#B0A483" }}>משתמש בקובץ המקומי (סנכרון Drive עדיין לא הוגדר)</span>}
+        </div>
       </Collapsible>
 
       <Collapsible id="prep" title="הכנות לפני הטיסה" Icon={ShieldAlert}>
@@ -1943,224 +1980,260 @@ const TIME_SLOTS = [
   { id: "evening", label: "ערב" },
 ];
 
+/* Neighborhood coordinates (approx, landmark level) — used to sort curated
+   recommendations by distance from the user's GPS. Keys are unique globally. */
+const NB = {
+  // Tokyo
+  tomigaya: [35.667, 139.690], omotesando: [35.665, 139.712], shibuya: [35.659, 139.701],
+  shinjuku: [35.690, 139.700], ebisu: [35.647, 139.710], tsukiji: [35.665, 139.770],
+  tokyoc: [35.681, 139.767], asakusa: [35.714, 139.797], toyosu: [35.655, 139.795],
+  harajuku: [35.676, 139.699], shinjukugyoen: [35.685, 139.710], ueno: [35.715, 139.773],
+  // Osaka
+  amerikamura: [34.671, 135.498], honmachi: [34.685, 135.500], dotonbori: [34.669, 135.501],
+  sennichimae: [34.665, 135.503], namba: [34.666, 135.500], osakacastle: [34.687, 135.526],
+  umeda: [34.705, 135.497], shinsekai: [34.652, 135.506], shinsaibashi: [34.673, 135.501],
+  nipponbashi: [34.665, 135.506],
+  // Kyoto
+  higashiyama: [34.998, 135.782], kyotoc: [35.005, 135.766], kyotostation: [34.986, 135.759],
+  ginkakuji: [35.027, 135.798], fushimi: [34.967, 135.772], kinkakuji: [35.039, 135.729],
+  arashiyama: [35.017, 135.672], kiyomizu: [34.995, 135.785], pontocho: [35.006, 135.771],
+  // Seoul
+  anguk: [37.576, 126.985], hapjeong: [37.549, 126.914], mapo: [37.556, 126.923],
+  gwangjang: [37.570, 127.000], myeongdong: [37.560, 126.986], gyeongbok: [37.578, 126.977],
+  namsan: [37.551, 126.988], hongdae: [37.557, 126.924], yeouido: [37.528, 126.933],
+  euljiro: [37.566, 126.991],
+  // Kobe
+  kitano: [34.700, 135.190], sannomiya: [34.694, 135.194], kobec: [34.690, 135.195],
+  harbor: [34.681, 135.187], nunobiki: [34.702, 135.204], rokko: [34.778, 135.235],
+  // Kanazawa
+  kzc: [36.562, 136.656], omicho: [36.571, 136.657], higashichaya: [36.570, 136.666], kenrokuen: [36.562, 136.662],
+  // Takayama
+  oldtown: [36.140, 137.258], miyagawa: [36.143, 137.256], hidanosato: [36.130, 137.243], tkhigashiyama: [36.145, 137.262],
+  // Shirakawa-go
+  ogimachi: [36.258, 136.906], shiroyama: [36.261, 136.905],
+  // Kawaguchiko
+  northlake: [35.517, 138.759], kwtown: [35.499, 138.762], nearlake: [35.510, 138.762], arakura: [35.507, 138.799], eastlake: [35.502, 138.766],
+  // Hakone
+  lakeashi: [35.204, 139.024], gora: [35.243, 139.052], ninotaira: [35.244, 139.049], owakudani: [35.244, 139.020],
+};
+
 /* Curated, real, well-known places per city (keyed by weatherCity).
-   R(name, area, note, slots?) — slots omitted = suitable any time.
-   Each opens in Google Maps via a name search so the user can decide. */
-const R = (name, area, note, slots) => ({ name, area, note, slots: slots || null });
+   R(name, area, note, slots?, nb?) — slots omitted = any time; nb = NB key for distance sort. */
+const R = (name, area, note, slots, nb) => ({ name, area, note, slots: slots || null, ll: (nb && NB[nb]) || null });
 const CURATED = {
   tokyo: {
     cafe: [
-      R("Fuglen Tokyo", "טומיגאיה", "קפה נורווגי ביום, קוקטיילים בערב — אווירה וינטג׳"),
-      R("Koffee Mameya", "אומוטסאנדו", "מקדש קפה ספיישלטי, בחירה מוקפדת", ["morning", "afternoon"]),
-      R("About Life Coffee Brewers", "שיבויה", "בר אספרסו זעיר לעמידה, מושלם לבוקר", ["morning", "afternoon"]),
-      R("Blue Bottle Coffee Shinjuku", "שינג׳וקו", "רשת ספיישלטי אמינה ליד התחנה"),
+      R("Fuglen Tokyo", "טומיגאיה", "קפה נורווגי ביום, קוקטיילים בערב — אווירה וינטג׳", null, "tomigaya"),
+      R("Koffee Mameya", "אומוטסאנדו", "מקדש קפה ספיישלטי, בחירה מוקפדת", ["morning", "afternoon"], "omotesando"),
+      R("About Life Coffee Brewers", "שיבויה", "בר אספרסו זעיר לעמידה, מושלם לבוקר", ["morning", "afternoon"], "shibuya"),
+      R("Blue Bottle Coffee Shinjuku", "שינג׳וקו", "רשת ספיישלטי אמינה ליד התחנה", null, "shinjuku"),
     ],
     food: [
-      R("Ichiran Ramen Shibuya", "שיבויה", "טונקוצו ראמן בתאים אישיים — קלאסיקה"),
-      R("Afuri Ebisu", "אביסו", "ראמן יוזו קליל ומרענן"),
-      R("Gyukatsu Motomura", "שיבויה", "שניצל בקר שאתם צולים על אבן לוהטת", ["afternoon", "evening"]),
-      R("Sushi Zanmai Tsukiji", "צוקיג׳י", "סושי טרי, פתוח שעות ארוכות"),
+      R("Ichiran Ramen Shibuya", "שיבויה", "טונקוצו ראמן בתאים אישיים — קלאסיקה", null, "shibuya"),
+      R("Afuri Ebisu", "אביסו", "ראמן יוזו קליל ומרענן", null, "ebisu"),
+      R("Gyukatsu Motomura", "שיבויה", "שניצל בקר שאתם צולים על אבן לוהטת", ["afternoon", "evening"], "shibuya"),
+      R("Sushi Zanmai Tsukiji", "צוקיג׳י", "סושי טרי, פתוח שעות ארוכות", null, "tsukiji"),
     ],
     sweet: [
-      R("Gindaco Takoyaki", "כל העיר", "כדורי טאקויאקי חמים — חטיף חובה"),
-      R("Mister Donut", "כל העיר", "רשת דונאטס יפנית אהובה וזולה"),
+      R("Gindaco Takoyaki", "כל העיר", "כדורי טאקויאקי חמים — חטיף חובה", null, "tokyoc"),
+      R("Mister Donut", "כל העיר", "רשת דונאטס יפנית אהובה וזולה", null, "tokyoc"),
     ],
     attraction: [
-      R("Senso-ji Temple", "אסאקוסה", "המקדש העתיק בטוקיו + רחוב נאקאמיסה", ["morning", "afternoon"]),
-      R("teamLab Planets", "טויוסו", "מוזיאון אמנות דיגיטלי סוחף — כרטיס מראש"),
-      R("Shibuya Sky", "שיבויה", "תצפית גג מרהיבה, מומלץ לשקיעה", ["afternoon", "evening"]),
-      R("Meiji Jingu", "הרג׳וקו", "מקדש שקט ביער בלב העיר", ["morning", "afternoon"]),
+      R("Senso-ji Temple", "אסאקוסה", "המקדש העתיק בטוקיו + רחוב נאקאמיסה", ["morning", "afternoon"], "asakusa"),
+      R("teamLab Planets", "טויוסו", "מוזיאון אמנות דיגיטלי סוחף — כרטיס מראש", null, "toyosu"),
+      R("Shibuya Sky", "שיבויה", "תצפית גג מרהיבה, מומלץ לשקיעה", ["afternoon", "evening"], "shibuya"),
+      R("Meiji Jingu", "הרג׳וקו", "מקדש שקט ביער בלב העיר", ["morning", "afternoon"], "harajuku"),
     ],
     shopping: [
-      R("Shibuya PARCO", "שיבויה", "אופנה, נינטנדו/פוקימון סטור, גג נחמד"),
-      R("Don Quijote", "כל העיר", "הכול-בכול יפני, פתוח עד מאוחר"),
-      R("Nakamise Street", "אסאקוסה", "מזכרות ואוכל רחוב לפני סנסו-ג׳י", ["morning", "afternoon"]),
+      R("Shibuya PARCO", "שיבויה", "אופנה, נינטנדו/פוקימון סטור, גג נחמד", null, "shibuya"),
+      R("Don Quijote", "כל העיר", "הכול-בכול יפני, פתוח עד מאוחר", null, "tokyoc"),
+      R("Nakamise Street", "אסאקוסה", "מזכרות ואוכל רחוב לפני סנסו-ג׳י", ["morning", "afternoon"], "asakusa"),
     ],
     nature: [
-      R("Shinjuku Gyoen", "שינג׳וקו", "גן ענק ורגוע — כניסה בתשלום קטן", ["morning", "afternoon"]),
-      R("Ueno Park", "אואנו", "פארק, מוזיאונים ובריכת לוטוס", ["morning", "afternoon"]),
+      R("Shinjuku Gyoen", "שינג׳וקו", "גן ענק ורגוע — כניסה בתשלום קטן", ["morning", "afternoon"], "shinjukugyoen"),
+      R("Ueno Park", "אואנו", "פארק, מוזיאונים ובריכת לוטוס", ["morning", "afternoon"], "ueno"),
     ],
     bar: [
-      R("Golden Gai", "שינג׳וקו", "סמטאות עם עשרות ברים זעירים", ["evening"]),
-      R("New York Bar (Park Hyatt)", "שינג׳וקו", "בר תצפית מיתולוגי", ["evening"]),
+      R("Golden Gai", "שינג׳וקו", "סמטאות עם עשרות ברים זעירים", ["evening"], "shinjuku"),
+      R("New York Bar (Park Hyatt)", "שינג׳וקו", "בר תצפית מיתולוגי", ["evening"], "shinjuku"),
     ],
   },
   osaka: {
     cafe: [
-      R("LiLo Coffee Roasters", "אמריקה-מורה", "צלייה מקומית, ספיישלטי מצוין", ["morning", "afternoon"]),
-      R("Mel Coffee Roasters", "הונמאצ׳י", "בר קפה קטן ואיכותי", ["morning", "afternoon"]),
+      R("LiLo Coffee Roasters", "אמריקה-מורה", "צלייה מקומית, ספיישלטי מצוין", ["morning", "afternoon"], "amerikamura"),
+      R("Mel Coffee Roasters", "הונמאצ׳י", "בר קפה קטן ואיכותי", ["morning", "afternoon"], "honmachi"),
     ],
     food: [
-      R("Mizuno Okonomiyaki", "דוטומבורי", "אוקונומיאקי מיטב אוסקה — לרוב יש תור", ["afternoon", "evening"]),
-      R("Takoyaki Wanaka", "סנניצ׳ימאה", "טאקויאקי אגדי, אוכל רחוב"),
-      R("Kani Doraku", "דוטומבורי", "מסעדת סרטנים עם השלט המפורסם"),
-      R("Ichiran Dotonbori", "דוטומבורי", "ראמן טונקוצו קלאסי"),
+      R("Mizuno Okonomiyaki", "דוטומבורי", "אוקונומיאקי מיטב אוסקה — לרוב יש תור", ["afternoon", "evening"], "dotonbori"),
+      R("Takoyaki Wanaka", "סנניצ׳ימאה", "טאקויאקי אגדי, אוכל רחוב", null, "sennichimae"),
+      R("Kani Doraku", "דוטומבורי", "מסעדת סרטנים עם השלט המפורסם", null, "dotonbori"),
+      R("Ichiran Dotonbori", "דוטומבורי", "ראמן טונקוצו קלאסי", null, "dotonbori"),
     ],
-    sweet: [R("Rikuro's Cheesecake", "נמבה", "עוגת גבינה יפנית אוורירית וחמה")],
+    sweet: [R("Rikuro's Cheesecake", "נמבה", "עוגת גבינה יפנית אוורירית וחמה", null, "namba")],
     attraction: [
-      R("Osaka Castle", "צ׳ואו", "טירה מרשימה ופארק סביבה", ["morning", "afternoon"]),
-      R("Dotonbori", "נמבה", "לב הלילה של אוסקה — ניאון וגליקו", ["afternoon", "evening"]),
-      R("Umeda Sky Building", "אומדה", "תצפית 'גן שמיים' מרהיבה", ["afternoon", "evening"]),
-      R("Shinsekai Tsutenkaku", "שינסקאי", "שכונה נוסטלגית עם מגדל טסוטנקאקו"),
+      R("Osaka Castle", "צ׳ואו", "טירה מרשימה ופארק סביבה", ["morning", "afternoon"], "osakacastle"),
+      R("Dotonbori", "נמבה", "לב הלילה של אוסקה — ניאון וגליקו", ["afternoon", "evening"], "dotonbori"),
+      R("Umeda Sky Building", "אומדה", "תצפית 'גן שמיים' מרהיבה", ["afternoon", "evening"], "umeda"),
+      R("Shinsekai Tsutenkaku", "שינסקאי", "שכונה נוסטלגית עם מגדל טסוטנקאקו", null, "shinsekai"),
     ],
     shopping: [
-      R("Shinsaibashi-suji", "שינסאיבאשי", "רחוב קניות מקורה ענק"),
-      R("Kuromon Ichiba Market", "ניפומבאשי", "שוק אוכל תוסס", ["morning", "afternoon"]),
+      R("Shinsaibashi-suji", "שינסאיבאשי", "רחוב קניות מקורה ענק", null, "shinsaibashi"),
+      R("Kuromon Ichiba Market", "ניפומבאשי", "שוק אוכל תוסס", ["morning", "afternoon"], "nipponbashi"),
     ],
-    nature: [R("Osaka Castle Park", "צ׳ואו", "פארק נעים סביב הטירה", ["morning", "afternoon"])],
-    bar: [R("Ura-Namba", "נמבה", "אזור סמטאות עם ברים קטנים ואוכל", ["evening"])],
+    nature: [R("Osaka Castle Park", "צ׳ואו", "פארק נעים סביב הטירה", ["morning", "afternoon"], "osakacastle")],
+    bar: [R("Ura-Namba", "נמבה", "אזור סמטאות עם ברים קטנים ואוכל", ["evening"], "namba")],
   },
   kyoto: {
     cafe: [
-      R("% Arabica Kyoto Higashiyama", "היגאשיאמה", "לאטה מפורסם עם נוף — לרוב תור", ["morning", "afternoon"]),
-      R("Weekenders Coffee", "טומינוקוג׳י", "בר קפה נסתר בחצר יפנית", ["morning", "afternoon"]),
-      R("Kurasu Kyoto", "ליד התחנה", "ספיישלטי אמין ליד תחנת קיוטו", ["morning", "afternoon"]),
+      R("% Arabica Kyoto Higashiyama", "היגאשיאמה", "לאטה מפורסם עם נוף — לרוב תור", ["morning", "afternoon"], "higashiyama"),
+      R("Weekenders Coffee", "טומינוקוג׳י", "בר קפה נסתר בחצר יפנית", ["morning", "afternoon"], "kyotoc"),
+      R("Kurasu Kyoto", "ליד התחנה", "ספיישלטי אמין ליד תחנת קיוטו", ["morning", "afternoon"], "kyotostation"),
     ],
     food: [
-      R("Nishiki Market", "מרכז", "'מטבח קיוטו' — דוכני אוכל רבים", ["morning", "afternoon"]),
-      R("Kyoto Gogyo", "מרכז", "ראמן מיסו 'שרוף' ייחודי"),
-      R("Omen Ginkakuji", "ליד גינקקוג׳י", "אודון ביתי מעולה"),
+      R("Nishiki Market", "מרכז", "'מטבח קיוטו' — דוכני אוכל רבים", ["morning", "afternoon"], "kyotoc"),
+      R("Kyoto Gogyo", "מרכז", "ראמן מיסו 'שרוף' ייחודי", null, "kyotoc"),
+      R("Omen Ginkakuji", "ליד גינקקוג׳י", "אודון ביתי מעולה", null, "ginkakuji"),
     ],
     sweet: [
-      R("Malebranche", "מרכז", "עוגיות מאצ׳ה מפורסמות"),
-      R("% Arabica", "היגאשיאמה", "גם קפה מתוק וגלידה"),
+      R("Malebranche", "מרכז", "עוגיות מאצ׳ה מפורסמות", null, "kyotoc"),
+      R("% Arabica", "היגאשיאמה", "גם קפה מתוק וגלידה", null, "higashiyama"),
     ],
     attraction: [
-      R("Fushimi Inari Taisha", "פושימי", "אלפי שערי טורי כתומים — לכו מוקדם", ["morning"]),
-      R("Kinkaku-ji", "צפון-מערב", "מקדש הזהב על האגם", ["morning", "afternoon"]),
-      R("Arashiyama Bamboo Grove", "אראשיאמה", "חורשת הבמבוק — הכי יפה בבוקר", ["morning"]),
-      R("Kiyomizu-dera", "היגאשיאמה", "מקדש עם מרפסת ונוף לעיר"),
+      R("Fushimi Inari Taisha", "פושימי", "אלפי שערי טורי כתומים — לכו מוקדם", ["morning"], "fushimi"),
+      R("Kinkaku-ji", "צפון-מערב", "מקדש הזהב על האגם", ["morning", "afternoon"], "kinkakuji"),
+      R("Arashiyama Bamboo Grove", "אראשיאמה", "חורשת הבמבוק — הכי יפה בבוקר", ["morning"], "arashiyama"),
+      R("Kiyomizu-dera", "היגאשיאמה", "מקדש עם מרפסת ונוף לעיר", null, "kiyomizu"),
     ],
     shopping: [
-      R("Nishiki Market", "מרכז", "אוכל ומזכרות"),
-      R("Teramachi Street", "מרכז", "רחוב קניות מקורה"),
+      R("Nishiki Market", "מרכז", "אוכל ומזכרות", null, "kyotoc"),
+      R("Teramachi Street", "מרכז", "רחוב קניות מקורה", null, "kyotoc"),
     ],
     nature: [
-      R("Arashiyama Togetsukyo", "אראשיאמה", "נהר, גשר וטבע", ["morning", "afternoon"]),
-      R("Philosopher's Path", "היגאשיאמה", "שביל רגוע לאורך תעלה", ["morning", "afternoon"]),
+      R("Arashiyama Togetsukyo", "אראשיאמה", "נהר, גשר וטבע", ["morning", "afternoon"], "arashiyama"),
+      R("Philosopher's Path", "היגאשיאמה", "שביל רגוע לאורך תעלה", ["morning", "afternoon"], "ginkakuji"),
     ],
-    bar: [R("Pontocho Alley", "פונטוצ׳ו", "סמטה אטמוספרית עם ברים לצד הנהר", ["evening"])],
+    bar: [R("Pontocho Alley", "פונטוצ׳ו", "סמטה אטמוספרית עם ברים לצד הנהר", ["evening"], "pontocho")],
   },
   seoul: {
     cafe: [
-      R("Onion Anguk", "אנגוק", "בית קפה בהאנוק מסורתי — יפהפה", ["morning", "afternoon"]),
-      R("Anthracite Coffee", "הפג׳ונג", "בית קפה במפעל נעליים ישן", ["morning", "afternoon"]),
-      R("Fritz Coffee Company", "מאפו", "רשת ספיישלטי אהובה", ["morning", "afternoon"]),
+      R("Onion Anguk", "אנגוק", "בית קפה בהאנוק מסורתי — יפהפה", ["morning", "afternoon"], "anguk"),
+      R("Anthracite Coffee", "הפג׳ונג", "בית קפה במפעל נעליים ישן", ["morning", "afternoon"], "hapjeong"),
+      R("Fritz Coffee Company", "מאפו", "רשת ספיישלטי אהובה", ["morning", "afternoon"], "mapo"),
     ],
     food: [
-      R("Gwangjang Market", "ג׳ונגנו", "שוק אוכל רחוב אגדי — בינדאטוק", ["morning", "afternoon"]),
-      R("Myeongdong Kyoja", "מיונגדונג", "קאלגוקסו ומאנדו מפורסמים"),
-      R("Tosokchon Samgyetang", "ג׳ונגנו", "מרק עוף ג׳ינסנג מסורתי"),
+      R("Gwangjang Market", "ג׳ונגנו", "שוק אוכל רחוב אגדי — בינדאטוק", ["morning", "afternoon"], "gwangjang"),
+      R("Myeongdong Kyoja", "מיונגדונג", "קאלגוקסו ומאנדו מפורסמים", null, "myeongdong"),
+      R("Tosokchon Samgyetang", "ג׳ונגנו", "מרק עוף ג׳ינסנג מסורתי", null, "gyeongbok"),
     ],
-    sweet: [R("Sulbing", "כל העיר", "בינגסו — קרח מגולח קוריאני קלאסי")],
+    sweet: [R("Sulbing", "כל העיר", "בינגסו — קרח מגולח קוריאני קלאסי", null, "myeongdong")],
     attraction: [
-      R("Gyeongbokgung Palace", "ג׳ונגנו", "הארמון המרכזי — חילוף משמרות", ["morning", "afternoon"]),
-      R("Bukchon Hanok Village", "ג׳ונגנו", "שכונת בתים מסורתיים ציורית", ["morning", "afternoon"]),
-      R("N Seoul Tower", "נמסאן", "תצפית על העיר, יפה בשקיעה", ["afternoon", "evening"]),
-      R("Myeongdong", "ז׳ונג-גו", "אוכל רחוב וקוסמטיקה", ["afternoon", "evening"]),
+      R("Gyeongbokgung Palace", "ג׳ונגנו", "הארמון המרכזי — חילוף משמרות", ["morning", "afternoon"], "gyeongbok"),
+      R("Bukchon Hanok Village", "ג׳ונגנו", "שכונת בתים מסורתיים ציורית", ["morning", "afternoon"], "anguk"),
+      R("N Seoul Tower", "נמסאן", "תצפית על העיר, יפה בשקיעה", ["afternoon", "evening"], "namsan"),
+      R("Myeongdong", "ז׳ונג-גו", "אוכל רחוב וקוסמטיקה", ["afternoon", "evening"], "myeongdong"),
     ],
     shopping: [
-      R("Myeongdong", "ז׳ונג-גו", "קוסמטיקה ואופנה"),
-      R("Hongdae", "מאפו", "אזור צעיר, חנויות ומוזיקה", ["afternoon", "evening"]),
+      R("Myeongdong", "ז׳ונג-גו", "קוסמטיקה ואופנה", null, "myeongdong"),
+      R("Hongdae", "מאפו", "אזור צעיר, חנויות ומוזיקה", ["afternoon", "evening"], "hongdae"),
     ],
-    nature: [R("Han River Yeouido Park", "יאוידו", "פארק נהר להליכה ופיקניק", ["morning", "afternoon"])],
-    bar: [R("Euljiro Nogari Alley", "אולג׳ירו", "סמטאות בירה היפ ואותנטי", ["evening"])],
+    nature: [R("Han River Yeouido Park", "יאוידו", "פארק נהר להליכה ופיקניק", ["morning", "afternoon"], "yeouido")],
+    bar: [R("Euljiro Nogari Alley", "אולג׳ירו", "סמטאות בירה היפ ואותנטי", ["evening"], "euljiro")],
   },
   kobe: {
-    cafe: [R("Nishimura Coffee", "קיטאנו", "בית קפה ותיק ומכובד של קובה")],
+    cafe: [R("Nishimura Coffee", "קיטאנו", "בית קפה ותיק ומכובד של קובה", null, "kitano")],
     food: [
-      R("Steakland Kobe", "סאנומיה", "בקר קובה משתלם על טפאניאקי", ["afternoon", "evening"]),
-      R("Kobe Beef Steak Ishida", "סאנומיה", "חוויית בקר קובה איכותית", ["afternoon", "evening"]),
+      R("Steakland Kobe", "סאנומיה", "בקר קובה משתלם על טפאניאקי", ["afternoon", "evening"], "sannomiya"),
+      R("Kobe Beef Steak Ishida", "סאנומיה", "חוויית בקר קובה איכותית", ["afternoon", "evening"], "sannomiya"),
     ],
-    sweet: [R("Kobe Fugetsudo", "מרכז", "גופרות (baumkuchen) מסורתיות")],
+    sweet: [R("Kobe Fugetsudo", "מרכז", "גופרות (baumkuchen) מסורתיות", null, "kobec")],
     attraction: [
-      R("Kitano Ijinkan", "קיטאנו", "בתי סוחרים מערביים היסטוריים", ["morning", "afternoon"]),
-      R("Kobe Harborland Mosaic", "נמל", "טיילת, גלגל ענק ונוף לנמל", ["afternoon", "evening"]),
-      R("Nunobiki Herb Garden", "רכבל", "גן מרפא עם רכבל ותצפית"),
+      R("Kitano Ijinkan", "קיטאנו", "בתי סוחרים מערביים היסטוריים", ["morning", "afternoon"], "kitano"),
+      R("Kobe Harborland Mosaic", "נמל", "טיילת, גלגל ענק ונוף לנמל", ["afternoon", "evening"], "harbor"),
+      R("Nunobiki Herb Garden", "רכבל", "גן מרפא עם רכבל ותצפית", null, "nunobiki"),
     ],
     nature: [
-      R("Nunobiki Falls", "מעל התחנה", "מפלים יפים בטווח הליכה מהתחנה", ["morning", "afternoon"]),
-      R("Mount Rokko", "רוקו", "תצפית לילה מפורסמת על המפרץ", ["afternoon", "evening"]),
+      R("Nunobiki Falls", "מעל התחנה", "מפלים יפים בטווח הליכה מהתחנה", ["morning", "afternoon"], "nunobiki"),
+      R("Mount Rokko", "רוקו", "תצפית לילה מפורסמת על המפרץ", ["afternoon", "evening"], "rokko"),
     ],
-    shopping: [R("Sannomiya Center Gai", "סאנומיה", "רחוב קניות מקורה מרכזי")],
+    shopping: [R("Sannomiya Center Gai", "סאנומיה", "רחוב קניות מקורה מרכזי", null, "sannomiya")],
     bar: [],
   },
   kanazawa: {
-    cafe: [R("Curio Espresso", "מרכז", "בית קפה בסגנון סיאטל", ["morning", "afternoon"])],
+    cafe: [R("Curio Espresso", "מרכז", "בית קפה בסגנון סיאטל", ["morning", "afternoon"], "kzc")],
     food: [
-      R("Omicho Market", "אומיצ׳ו", "שוק פירות ים טרי — קאיסן-דון", ["morning", "afternoon"]),
-      R("Maimon Sushi", "קנזאווה", "סושי מקומי מצוין"),
+      R("Omicho Market", "אומיצ׳ו", "שוק פירות ים טרי — קאיסן-דון", ["morning", "afternoon"], "omicho"),
+      R("Maimon Sushi", "קנזאווה", "סושי מקומי מצוין", null, "kzc"),
     ],
-    sweet: [R("Hakuza Gold Leaf", "היגאשי צ׳איה", "גלידה מצופה עלי זהב — ייחודי לקנזאווה")],
+    sweet: [R("Hakuza Gold Leaf", "היגאשי צ׳איה", "גלידה מצופה עלי זהב — ייחודי לקנזאווה", null, "higashichaya")],
     attraction: [
-      R("Kenrokuen Garden", "מרכז", "אחד משלושת הגנים היפים ביפן", ["morning", "afternoon"]),
-      R("Higashi Chaya District", "היגאשי", "רובע גיישות עתיק ומשומר", ["morning", "afternoon"]),
-      R("21st Century Museum", "מרכז", "מוזיאון אמנות עכשווית"),
-      R("Kanazawa Castle", "מרכז", "טירה ופארק לצד קנרוקואן", ["morning", "afternoon"]),
+      R("Kenrokuen Garden", "מרכז", "אחד משלושת הגנים היפים ביפן", ["morning", "afternoon"], "kenrokuen"),
+      R("Higashi Chaya District", "היגאשי", "רובע גיישות עתיק ומשומר", ["morning", "afternoon"], "higashichaya"),
+      R("21st Century Museum", "מרכז", "מוזיאון אמנות עכשווית", null, "kenrokuen"),
+      R("Kanazawa Castle", "מרכז", "טירה ופארק לצד קנרוקואן", ["morning", "afternoon"], "kenrokuen"),
     ],
-    shopping: [R("Omicho Market", "אומיצ׳ו", "שוק אוכל ומזכרות", ["morning", "afternoon"])],
-    nature: [R("Kenrokuen Garden", "מרכז", "גן נוף מטופח", ["morning", "afternoon"])],
+    shopping: [R("Omicho Market", "אומיצ׳ו", "שוק אוכל ומזכרות", ["morning", "afternoon"], "omicho")],
+    nature: [R("Kenrokuen Garden", "מרכז", "גן נוף מטופח", ["morning", "afternoon"], "kenrokuen")],
     bar: [],
   },
   takayama: {
-    cafe: [R("Falo Coffee & Beer", "עיר עתיקה", "קפה ובירה מקומית ברחוב העתיק")],
+    cafe: [R("Falo Coffee & Beer", "עיר עתיקה", "קפה ובירה מקומית ברחוב העתיק", null, "oldtown")],
     food: [
-      R("Center4 Hamburgers", "עיר עתיקה", "המבורגר בקר הידה מעולה", ["afternoon", "evening"]),
-      R("Kyoya", "עיר עתיקה", "הידה-ביף עם מיסו על עלה הובה"),
+      R("Center4 Hamburgers", "עיר עתיקה", "המבורגר בקר הידה מעולה", ["afternoon", "evening"], "oldtown"),
+      R("Kyoya", "עיר עתיקה", "הידה-ביף עם מיסו על עלה הובה", null, "oldtown"),
     ],
-    sweet: [R("Miyagawa Morning Market", "לצד הנהר", "טעימות וחטיפים בשוק הבוקר", ["morning"])],
+    sweet: [R("Miyagawa Morning Market", "לצד הנהר", "טעימות וחטיפים בשוק הבוקר", ["morning"], "miyagawa")],
     attraction: [
-      R("Sanmachi Suji Old Town", "מרכז", "רחובות עץ משומרים מתקופת אדו", ["morning", "afternoon"]),
-      R("Hida Folk Village", "הידה נו סאטו", "כפר-מוזיאון של בתי גאשו", ["morning", "afternoon"]),
-      R("Miyagawa Morning Market", "לצד הנהר", "שוק בוקר מקומי", ["morning"]),
+      R("Sanmachi Suji Old Town", "מרכז", "רחובות עץ משומרים מתקופת אדו", ["morning", "afternoon"], "oldtown"),
+      R("Hida Folk Village", "הידה נו סאטו", "כפר-מוזיאון של בתי גאשו", ["morning", "afternoon"], "hidanosato"),
+      R("Miyagawa Morning Market", "לצד הנהר", "שוק בוקר מקומי", ["morning"], "miyagawa"),
     ],
-    shopping: [R("Sanmachi Suji", "מרכז", "סאקה, מלאכת יד ומזכרות")],
-    nature: [R("Higashiyama Walking Course", "מזרח", "שביל מקדשים שקט", ["morning", "afternoon"])],
+    shopping: [R("Sanmachi Suji", "מרכז", "סאקה, מלאכת יד ומזכרות", null, "oldtown")],
+    nature: [R("Higashiyama Walking Course", "מזרח", "שביל מקדשים שקט", ["morning", "afternoon"], "tkhigashiyama")],
     bar: [],
   },
   shirakawago: {
-    cafe: [R("Ochudo Cafe", "אוגימאצ׳י", "קפה ומאפה עם נוף לכפר")],
-    food: [R("Irori", "אוגימאצ׳י", "סובה ומנות מקומיות ליד אח מסורתי")],
+    cafe: [R("Ochudo Cafe", "אוגימאצ׳י", "קפה ומאפה עם נוף לכפר", null, "ogimachi")],
+    food: [R("Irori", "אוגימאצ׳י", "סובה ומנות מקומיות ליד אח מסורתי", null, "ogimachi")],
     sweet: [],
     attraction: [
-      R("Ogimachi Gassho Village", "מרכז", "כפר בתי הגאשו-זוקורי (אונסקו)", ["morning", "afternoon"]),
-      R("Shiroyama Viewpoint", "צפון הכפר", "תצפית על כל הכפר מלמעלה", ["morning", "afternoon"]),
-      R("Wada House", "אוגימאצ׳י", "בית גאשו היסטורי לביקור", ["morning", "afternoon"]),
+      R("Ogimachi Gassho Village", "מרכז", "כפר בתי הגאשו-זוקורי (אונסקו)", ["morning", "afternoon"], "ogimachi"),
+      R("Shiroyama Viewpoint", "צפון הכפר", "תצפית על כל הכפר מלמעלה", ["morning", "afternoon"], "shiroyama"),
+      R("Wada House", "אוגימאצ׳י", "בית גאשו היסטורי לביקור", ["morning", "afternoon"], "ogimachi"),
     ],
     shopping: [],
-    nature: [R("Shiroyama Viewpoint", "צפון הכפר", "נוף כפרי מרהיב", ["morning", "afternoon"])],
+    nature: [R("Shiroyama Viewpoint", "צפון הכפר", "נוף כפרי מרהיב", ["morning", "afternoon"], "shiroyama")],
     bar: [],
   },
   kawaguchiko: {
-    cafe: [R("Lake Bake", "צפון האגם", "מאפייה-קפה עם נוף לאגם ולפוג׳י", ["morning", "afternoon"])],
-    food: [R("Hoto Fudo", "קוואגוצ׳יקו", "'הוטו' — נודלס במרק מיסו, מנה מקומית")],
-    sweet: [R("FUJIYAMA Cookie", "ליד האגם", "עוגיות בצורת פוג׳י")],
+    cafe: [R("Lake Bake", "צפון האגם", "מאפייה-קפה עם נוף לאגם ולפוג׳י", ["morning", "afternoon"], "northlake")],
+    food: [R("Hoto Fudo", "קוואגוצ׳יקו", "'הוטו' — נודלס במרק מיסו, מנה מקומית", null, "kwtown")],
+    sweet: [R("FUJIYAMA Cookie", "ליד האגם", "עוגיות בצורת פוג׳י", null, "nearlake")],
     attraction: [
-      R("Chureito Pagoda", "ארקורה סנגן", "הפגודה עם פוג׳י ברקע — הצילום הקלאסי", ["morning", "afternoon"]),
-      R("Oishi Park", "צפון האגם", "נוף פוג׳י מעבר לאגם + פרחים", ["morning", "afternoon"]),
-      R("Kachi Kachi Ropeway", "מזרח האגם", "רכבל לתצפית על פוג׳י והאגם"),
+      R("Chureito Pagoda", "ארקורה סנגן", "הפגודה עם פוג׳י ברקע — הצילום הקלאסי", ["morning", "afternoon"], "arakura"),
+      R("Oishi Park", "צפון האגם", "נוף פוג׳י מעבר לאגם + פרחים", ["morning", "afternoon"], "northlake"),
+      R("Kachi Kachi Ropeway", "מזרח האגם", "רכבל לתצפית על פוג׳י והאגם", null, "eastlake"),
     ],
     shopping: [],
     nature: [
-      R("Lake Kawaguchiko", "כל ההיקף", "אגם עם נופי פוג׳י — השכירו אופניים", ["morning", "afternoon"]),
-      R("Oishi Park", "צפון האגם", "פארק פריחה מול פוג׳י", ["morning", "afternoon"]),
+      R("Lake Kawaguchiko", "כל ההיקף", "אגם עם נופי פוג׳י — השכירו אופניים", ["morning", "afternoon"], "northlake"),
+      R("Oishi Park", "צפון האגם", "פארק פריחה מול פוג׳י", ["morning", "afternoon"], "northlake"),
     ],
     bar: [],
   },
   hakone: {
-    cafe: [R("Bakery & Table Hakone", "אגם אשי", "מאפייה-קפה עם אמבט רגליים ונוף לאגם", ["morning", "afternoon"])],
-    food: [R("Gyoza Center", "גורה", "מגוון גיוזה מקומי אהוב")],
-    sweet: [R("Owakudani Black Egg", "אווקודני", "'ביצה שחורה' מבושלת במעיינות הגופרית", ["morning", "afternoon"])],
+    cafe: [R("Bakery & Table Hakone", "אגם אשי", "מאפייה-קפה עם אמבט רגליים ונוף לאגם", ["morning", "afternoon"], "lakeashi")],
+    food: [R("Gyoza Center", "גורה", "מגוון גיוזה מקומי אהוב", null, "gora")],
+    sweet: [R("Owakudani Black Egg", "אווקודני", "'ביצה שחורה' מבושלת במעיינות הגופרית", ["morning", "afternoon"], "owakudani")],
     attraction: [
-      R("Hakone Open-Air Museum", "ניניודאני", "מוזיאון פיסול בחוץ + אגף פיקאסו"),
-      R("Owakudani", "אווקודני", "עמק געשי עם אדים ומעיינות גופרית", ["morning", "afternoon"]),
-      R("Lake Ashi Cruise", "אגם אשי", "שיט על האגם עם נוף לפוג׳י", ["morning", "afternoon"]),
-      R("Hakone Shrine", "אגם אשי", "שער הטורי המפורסם על המים"),
+      R("Hakone Open-Air Museum", "ניניודאני", "מוזיאון פיסול בחוץ + אגף פיקאסו", null, "ninotaira"),
+      R("Owakudani", "אווקודני", "עמק געשי עם אדים ומעיינות גופרית", ["morning", "afternoon"], "owakudani"),
+      R("Lake Ashi Cruise", "אגם אשי", "שיט על האגם עם נוף לפוג׳י", ["morning", "afternoon"], "lakeashi"),
+      R("Hakone Shrine", "אגם אשי", "שער הטורי המפורסם על המים", null, "lakeashi"),
     ],
     shopping: [],
     nature: [
-      R("Lake Ashi", "אגם אשי", "אגם געשי יפהפה", ["morning", "afternoon"]),
-      R("Gora Park", "גורה", "גן צרפתי בהר", ["morning", "afternoon"]),
+      R("Lake Ashi", "אגם אשי", "אגם געשי יפהפה", ["morning", "afternoon"], "lakeashi"),
+      R("Gora Park", "גורה", "גן צרפתי בהר", ["morning", "afternoon"], "gora"),
     ],
     bar: [],
   },
@@ -2171,6 +2244,7 @@ function currentJpSlot() {
   try { const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false }).format(new Date())); return h < 11 ? "morning" : h < 17 ? "afternoon" : "evening"; }
   catch (e) { return "any"; }
 }
+function fmtKm(km) { return km < 10 ? `${km.toFixed(1)} ק״מ` : `${Math.round(km)} ק״מ`; }
 
 function RecommendTab() {
   const [selectedPlace, setSelectedPlace] = useState(null);
@@ -2178,6 +2252,7 @@ function RecommendTab() {
   const [locError, setLocError] = useState("");
   const [kind, setKind] = useState("attraction");
   const [slot, setSlot] = useState(currentJpSlot());
+  const [userCoords, setUserCoords] = useState(null); // set only when "use my location" succeeds
 
   const useMyLocation = () => {
     if (!("geolocation" in navigator)) { setLocError("המכשיר/הדפדפן הזה לא תומך באיתור מיקום — בחרו יעד ידנית למטה."); return; }
@@ -2188,7 +2263,9 @@ function RecommendTab() {
         let nearest = null, best = Infinity;
         WEATHER_CITIES.forEach((c) => { const dist = haversine(latitude, longitude, c.lat, c.lon); if (dist < best) { best = dist; nearest = c.id; } });
         const place = PLACES.find((p) => p.weatherCity === nearest) || null;
-        setSelectedPlace(place?.id || null); setLocating(false);
+        setSelectedPlace(place?.id || null);
+        setUserCoords({ lat: latitude, lon: longitude });
+        setLocating(false);
       },
       (err) => {
         setLocating(false);
@@ -2200,20 +2277,28 @@ function RecommendTab() {
     );
   };
 
+  // manual city pick => list order (clears distance sorting)
+  const pickCity = (id) => { setSelectedPlace(id); setUserCoords(null); };
+
   const place = selectedPlace ? placeById(selectedPlace) : null;
   const cityKey = place?.weatherCity || null;
   const cityData = cityKey ? CURATED[cityKey] : null;
   const kindInfo = RECOMMEND_KINDS.find((k) => k.id === kind);
 
   const allForKind = (cityData && cityData[kind]) ? cityData[kind] : [];
-  const results = allForKind.filter((r) => slot === "any" || !r.slots || r.slots.includes(slot));
+  let results = allForKind.filter((r) => slot === "any" || !r.slots || r.slots.includes(slot));
+  if (userCoords) {
+    results = results
+      .map((r) => ({ ...r, dist: r.ll ? haversine(userCoords.lat, userCoords.lon, r.ll[0], r.ll[1]) : Infinity }))
+      .sort((a, b) => a.dist - b.dist);
+  }
   const moreQuery = place ? `${kindInfo.label} ${place.label}` : "";
 
   return (
     <div className="px-4 pb-6">
       <SectionTitle eyebrow="בזמן אמת" title="לאן עכשיו?" Icon={Compass} />
       <div className="text-xs leading-relaxed rounded-lg px-3 py-2 mb-4" style={{ backgroundColor: "#EFE7D4", color: "#8A7F63" }}>
-        יש לכם זמן פנוי? בחרו איפה אתם, מה בא לכם ובאיזה חלק מהיום — ואמליץ על מקומות אמיתיים ואהובים באזור. כל המלצה נפתחת בגוגל מפס כדי שתוכלו להחליט.
+        יש לכם זמן פנוי? בחרו איפה אתם, מה בא לכם ובאיזה חלק מהיום — ואמליץ על מקומות אמיתיים ואהובים באזור. בלחיצה על "המיקום שלי" ההמלצות ימוינו לפי הקרבה אליכם. כל המלצה נפתחת בגוגל מפס.
       </div>
 
       <button onClick={useMyLocation} disabled={locating} className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-2xl py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: INDIGO }}>
@@ -2223,7 +2308,7 @@ function RecommendTab() {
 
       <div className="flex gap-2 mb-4 overflow-x-auto hide-scrollbar pb-1">
         {PLACES.filter((p) => p.id !== "tbd").map((p) => (
-          <button key={p.id} onClick={() => setSelectedPlace(p.id)} className="shrink-0 rounded-full px-2.5 py-1.5 text-xs font-semibold border flex items-center gap-1" style={{ backgroundColor: selectedPlace === p.id ? INDIGO : "#fff", color: selectedPlace === p.id ? "#fff" : INDIGO, borderColor: INDIGO }}>
+          <button key={p.id} onClick={() => pickCity(p.id)} className="shrink-0 rounded-full px-2.5 py-1.5 text-xs font-semibold border flex items-center gap-1" style={{ backgroundColor: selectedPlace === p.id ? INDIGO : "#fff", color: selectedPlace === p.id ? "#fff" : INDIGO, borderColor: INDIGO }}>
             <span>{p.emoji}</span>{p.label}
           </button>
         ))}
@@ -2245,11 +2330,15 @@ function RecommendTab() {
           </div>
 
           <div className="text-[11px] font-medium mb-1.5" style={{ color: "#8A7F63" }}>מתי?</div>
-          <div className="flex gap-1.5 mb-4">
+          <div className="flex gap-1.5 mb-3">
             {TIME_SLOTS.map((s) => (
               <button key={s.id} onClick={() => setSlot(s.id)} className="flex-1 rounded-full py-1.5 text-xs font-semibold border" style={{ backgroundColor: slot === s.id ? INDIGO : "#fff", color: slot === s.id ? "#fff" : INDIGO, borderColor: INDIGO }}>{s.label}</button>
             ))}
           </div>
+
+          {userCoords && results.length > 0 && (
+            <div className="text-[11px] font-semibold mb-2 inline-flex items-center gap-1" style={{ color: "#5B8266" }}><Navigation size={11} /> ממוין לפי הקרבה למיקום שלכם</div>
+          )}
 
           {results.length > 0 ? (
             <div className="space-y-2.5 mb-4">
@@ -2258,7 +2347,10 @@ function RecommendTab() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="font-bold text-[15px]" style={{ color: INK }}>{r.name}</div>
-                      {r.area && <div className="text-[11px] mt-0.5 inline-flex items-center gap-1" style={{ color: "#8A7F63" }}><MapPin size={11} />{r.area}</div>}
+                      <div className="text-[11px] mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: "#8A7F63" }}>
+                        {r.area && <span className="inline-flex items-center gap-1"><MapPin size={11} />{r.area}</span>}
+                        {userCoords && r.dist !== undefined && r.dist !== Infinity && <span className="font-semibold" style={{ color: "#5B8266" }}>· {fmtKm(r.dist)} ממך</span>}
+                      </div>
                       {r.note && <div className="text-xs leading-relaxed mt-1" style={{ color: "#6B6355" }}>{r.note}</div>}
                     </div>
                     <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2.5 py-1" style={{ backgroundColor: "#EFE7D4", color: INDIGO }}>מפות <ExternalLink size={11} /></span>
@@ -2612,7 +2704,7 @@ export default function JapanTripApp() {
         {tab === "weather" && <WeatherTab weather={weather} status={weatherStatus} />}
         {tab === "budget" && <BudgetTab data={data} setData={setData} merged={merged} fx={fx} />}
         {tab === "recommend" && <RecommendTab />}
-        {tab === "info" && <InfoTab data={data} setData={setData} merged={merged} excelStatus={excel.status} onRefreshExcel={refreshExcel} />}
+        {tab === "info" && <InfoTab data={data} setData={setData} merged={merged} excelStatus={excel.status} excelSource={excel.source} onRefreshExcel={refreshExcel} />}
       </div>
 
       {openDay && <DaySheet dateKey={openDay} data={data} setData={setData} merged={merged} weather={weather} weatherStatus={weatherStatus} onClose={() => setOpenDay(null)} />}
